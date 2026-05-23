@@ -104,6 +104,32 @@ type LoadingMap = Record<ViewKey, boolean>;
 const cache = new Map<string, { data: HubSpotResult; ts: number }>();
 const CACHE_TTL = 30_000;
 
+// ── localStorage cache for past report periods ────────────────────────────────
+// Past months never change, so we store them indefinitely across sessions.
+type StoredRowCounts = Pick<ReportRow, "newPrimary" | "newSecondary" | "churned" | "refunded" | "actual" | "eligible">;
+
+function lsKey(start: string, end: string): string {
+  return `academy_report_${start}_${end}`;
+}
+
+function getStoredPeriod(start: string, end: string): StoredRowCounts | null {
+  try {
+    const raw = localStorage.getItem(lsKey(start, end));
+    if (!raw) return null;
+    return JSON.parse(raw) as StoredRowCounts;
+  } catch {
+    return null;
+  }
+}
+
+function storePeriod(start: string, end: string, data: StoredRowCounts): void {
+  try {
+    localStorage.setItem(lsKey(start, end), JSON.stringify(data));
+  } catch {
+    // localStorage full or unavailable — silently skip
+  }
+}
+
 interface HubSpotResult {
   total: number;
   results: Contact[];
@@ -461,12 +487,21 @@ export default function DashboardPage() {
 
     const todayISO2 = new Date().toISOString().slice(0, 10);
 
-    // Process periods sequentially to avoid overwhelming HubSpot's rate limit.
-    // Within each period, all 6 queries still run in parallel.
-    // The UI updates row-by-row as each period completes.
+    // For past periods: serve from localStorage instantly, skip the API call.
+    // For current/future periods: always fetch from API.
+    // Past periods that aren't cached yet are fetched and then stored for future visits.
     for (let i = 0; i < periods.length; i++) {
       const p = periods[i];
       const isPast = p.end < todayISO2;
+
+      if (isPast) {
+        const stored = getStoredPeriod(p.start, p.end);
+        if (stored) {
+          setReportRows((rows) => rows.map((row, j) => j !== i ? row : { ...row, ...stored }));
+          continue;
+        }
+      }
+
       const eligFilters = isPast ? eligibleRenewalFilters(p.start, p.end) : eligibleRenewalActiveFilters(p.start, p.end);
       try {
         const [newPrim, newSec, churn, refund, actual, eligible] = await Promise.all([
@@ -477,15 +512,16 @@ export default function DashboardPage() {
           searchContacts(renewalActualFilters(p.start, p.end)),
           searchContacts(eligFilters),
         ]);
-        setReportRows((rows) => rows.map((row, j) => j !== i ? row : {
-          ...row,
+        const counts: StoredRowCounts = {
           newPrimary:   newPrim.total   ?? newPrim.results.length,
           newSecondary: newSec.total    ?? newSec.results.length,
           churned:      churn.total     ?? churn.results.length,
           refunded:     refund.total    ?? refund.results.length,
           actual:       actual.total    ?? actual.results.length,
           eligible:     eligible.total  ?? eligible.results.length,
-        }));
+        };
+        setReportRows((rows) => rows.map((row, j) => j !== i ? row : { ...row, ...counts }));
+        if (isPast) storePeriod(p.start, p.end, counts);
       } catch {
         // leave this row as EMPTY_ROW_COUNTS
       }
