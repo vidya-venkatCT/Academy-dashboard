@@ -52,18 +52,25 @@ export async function POST(req: NextRequest) {
   };
   if (typeof after === "string" && after) payload.after = after;
 
-  const upstream = await fetch(HUBSPOT_BASE, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  // Retry up to 3 times on 429 with exponential backoff
+  let upstream: Response | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    upstream = await fetch(HUBSPOT_BASE, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    if (upstream.status !== 429) break;
+    const retryAfter = Number(upstream.headers.get("Retry-After") ?? 1);
+    await new Promise((r) => setTimeout(r, (retryAfter || 1) * 1000 * (attempt + 1)));
+  }
 
-  const data = await upstream.json();
+  const data = await upstream!.json();
 
-  const res = NextResponse.json(data, { status: upstream.status });
+  const res = NextResponse.json(data, { status: upstream!.status });
   res.headers.set("Cache-Control", "s-maxage=5, stale-while-revalidate=5");
   return res;
 }
