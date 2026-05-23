@@ -460,11 +460,16 @@ export default function DashboardPage() {
     setReportLoading(true);
 
     const todayISO2 = new Date().toISOString().slice(0, 10);
-    const results = await Promise.allSettled(
-      periods.map((p) => {
-        const isPast = p.end < todayISO2;
-        const eligFilters = isPast ? eligibleRenewalFilters(p.start, p.end) : eligibleRenewalActiveFilters(p.start, p.end);
-        return Promise.all([
+
+    // Process periods sequentially to avoid overwhelming HubSpot's rate limit.
+    // Within each period, all 6 queries still run in parallel.
+    // The UI updates row-by-row as each period completes.
+    for (let i = 0; i < periods.length; i++) {
+      const p = periods[i];
+      const isPast = p.end < todayISO2;
+      const eligFilters = isPast ? eligibleRenewalFilters(p.start, p.end) : eligibleRenewalActiveFilters(p.start, p.end);
+      try {
+        const [newPrim, newSec, churn, refund, actual, eligible] = await Promise.all([
           searchContacts(newJoinersPrimaryFilters(p.start, p.end)),
           searchContacts(newJoinersSecondaryFilters(p.start, p.end)),
           searchContacts(churnedFilters(p.start, p.end)),
@@ -472,25 +477,19 @@ export default function DashboardPage() {
           searchContacts(renewalActualFilters(p.start, p.end)),
           searchContacts(eligFilters),
         ]);
-      })
-    );
-
-    setReportRows(periods.map((p, i) => {
-      const r = results[i];
-      if (r.status === "fulfilled") {
-        const [newPrim, newSec, churn, refund, actual, eligible] = r.value;
-        return {
-          ...p,
+        setReportRows((rows) => rows.map((row, j) => j !== i ? row : {
+          ...row,
           newPrimary:   newPrim.total   ?? newPrim.results.length,
           newSecondary: newSec.total    ?? newSec.results.length,
           churned:      churn.total     ?? churn.results.length,
           refunded:     refund.total    ?? refund.results.length,
           actual:       actual.total    ?? actual.results.length,
           eligible:     eligible.total  ?? eligible.results.length,
-        };
+        }));
+      } catch {
+        // leave this row as EMPTY_ROW_COUNTS
       }
-      return { ...p, ...EMPTY_ROW_COUNTS };
-    }));
+    }
 
     setReportLoading(false);
   }, []);
