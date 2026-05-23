@@ -417,8 +417,8 @@ export default function DashboardPage() {
   const range = getPeriodRange(periodState);
 
   const renewalRate =
-    state.counts.eligible !== null && state.counts.renewal !== null && state.counts.eligible > 0
-      ? ((state.counts.renewal / state.counts.eligible) * 100).toFixed(1) + "%"
+    state.counts.eligible !== null && state.counts.renewal !== null && (state.counts.eligible + state.counts.renewal) > 0
+      ? ((state.counts.renewal / (state.counts.eligible + state.counts.renewal)) * 100).toFixed(1) + "%"
       : "—";
 
   const loadSnapshotViews = useCallback(async () => {
@@ -558,8 +558,8 @@ export default function DashboardPage() {
   function exportReportCSV() {
     const header = ["Period", "New Primary", "New Secondary", "Total New Members", "Churned", "Refunded", "Actual Renewals", "Eligible Renewals", "Renewal Rate"].map(csvEscape).join(",");
     const lines = reportRows.map((r) => {
-      const renewalRate = r.actual !== null && r.eligible !== null && r.eligible > 0
-        ? ((r.actual / r.eligible) * 100).toFixed(1) + "%" : "—";
+      const renewalRate = r.actual !== null && r.eligible !== null && (r.eligible + r.actual) > 0
+        ? ((r.actual / (r.eligible + r.actual)) * 100).toFixed(1) + "%" : "—";
       const totalNew = r.newPrimary !== null && r.newSecondary !== null ? String(r.newPrimary + r.newSecondary) : "";
       return [
         r.label,
@@ -722,7 +722,7 @@ export default function DashboardPage() {
 
             <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "24px" })}>
               <StatCard title="Eligible Renewals" subtitle={`Expiring in ${range.label}`} badge="In period" badgeColor="orange" count={state.counts.eligible} isLoading={loading.eligible} active={state.activeView === "eligible"} onClick={() => setView("eligible")} />
-              <StatCard title="Renewal Rate" subtitle={`${state.counts.renewal ?? "—"} of ${state.counts.eligible ?? "—"} eligible · ${range.label}`} badge="Actual / Eligible" badgeColor="black" count={null} displayValue={renewalRate} isLoading={loading.renewal || loading.eligible} active={false} clickable={false} />
+              <StatCard title="Renewal Rate" subtitle={`${state.counts.renewal ?? "—"} of ${state.counts.eligible ?? "—"} eligible · ${range.label}`} badge="Actual / (Eligible + Actual)" badgeColor="black" count={null} displayValue={renewalRate} isLoading={loading.renewal || loading.eligible} active={false} clickable={false} />
             </div>
           </>
         )}
@@ -796,8 +796,8 @@ export default function DashboardPage() {
                       <tr><td colSpan={9} style={S({ padding: "32px", textAlign: "center", color: "#999" })}>Loading…</td></tr>
                     )}
                     {reportRows.map((row, i) => {
-                      const renewalRate = row.actual !== null && row.eligible !== null && row.eligible > 0
-                        ? ((row.actual / row.eligible) * 100).toFixed(1) + "%" : "—";
+                      const renewalRate = row.actual !== null && row.eligible !== null && (row.eligible + row.actual) > 0
+                        ? ((row.actual / (row.eligible + row.actual)) * 100).toFixed(1) + "%" : "—";
                       const loading = reportLoading && row.newPrimary === null;
                       const cell = (v: string | null, isLoading: boolean) => (
                         <td style={S({ padding: "11px 20px", textAlign: "right", color: isLoading ? "#ccc" : v === "—" || v === null ? "#999" : "#1a1a1a" })}>
@@ -872,7 +872,7 @@ export default function DashboardPage() {
                     ["Refunded",          "Members with CC Refunded + Mastermind Member tags, not CT Team, expiration_date in the period"],
                     ["Actual Renewals",   "Members with Mastermind Member tag, not CT Team, latest_renewal_date falls in the period"],
                     ["Eligible Renewals", "Primary members (not Secondary, not Acquired post-CC) whose expiration_date falls in the period — see note below"],
-                    ["Renewal Rate",      "Actual Renewals ÷ Eligible Renewals × 100"],
+                    ["Renewal Rate",      "Actual Renewals ÷ (Eligible + Actual Renewals) × 100"],
                   ].map(([col, def], i) => (
                     <tr key={col} style={S({ borderBottom: "1px solid #f0f0ee", background: i % 2 === 0 ? "#fff" : "#fafaf9" })}>
                       <td style={S({ padding: "10px 16px", fontWeight: 600, whiteSpace: "nowrap", color: "#1a1a1a" })}>{col}</td>

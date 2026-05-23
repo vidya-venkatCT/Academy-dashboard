@@ -84,7 +84,7 @@ All filters are defined in `lib/filters.ts` and applied via the HubSpot CRM Sear
 | **Refunded** | Members with the CC Refunded tag whose expiration falls in the period |
 | **Actual Renewals** | Members whose `latest_renewal_date` falls in the period |
 | **Eligible Renewals** | Primary members whose membership expiration falls in the period |
-| **Renewal Rate** | Actual Renewals ÷ Eligible Renewals × 100 |
+| **Renewal Rate** | Actual Renewals ÷ (Eligible + Actual Renewals) × 100 |
 
 ---
 

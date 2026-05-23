@@ -131,7 +131,7 @@ Note: `renewalActualMultiFilters` (OR query that also included CC Renewal 2026 t
 - **Snapshot metrics** (all-time, no period filter): Current Members (All), Current Primary, Current Secondary — **clickable**, shows contact list below when selected
 - **Default active view on load:** New Joiners (not Primary) — avoids loading the full member list on page open
 - **Period metrics** (respect selected period): New Joiners (with primary/secondary breakdown), Churned, Renewals Actual, Refunded, Eligible Renewals, Renewal Rate
-- **Renewal Rate** = Actual Renewals / Eligible Renewals × 100, shown as `XX.X%` on the StatCard
+- **Renewal Rate** = Actual Renewals / (Eligible + Actual Renewals) × 100, shown as `XX.X%` on the StatCard
 - Contact list table below StatCards — shows for all active views (snapshot and period)
 - CSV export of the individual contacts for the selected metric
 
@@ -269,7 +269,7 @@ Primary members whose `expiration_date` falls within the selected period. Exclud
 ---
 
 ### Renewal Rate
-`Actual Renewals ÷ Eligible Renewals × 100`, displayed as `XX.X%`. Calculated client-side from the two counts above.
+`Actual Renewals ÷ (Eligible Renewals + Actual Renewals) × 100`, displayed as `XX.X%`. Calculated client-side from the two counts above.
 
 ---
 
