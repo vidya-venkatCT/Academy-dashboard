@@ -1096,11 +1096,19 @@ export default function DashboardPage() {
 
             {/* Breakdown table */}
             {(() => {
-              // Build price breakdown from loaded contacts
+              // Build price breakdown from loaded contacts.
+              // Normalize to a canonical numeric key so "5000" and "5000.00"
+              // don't create two separate rows.
               const counts = new Map<string, number>();
               for (const c of eligBreakdownContacts) {
-                const price = c.properties.community_renewal_price ?? "";
-                const key = price.trim() === "" ? "Not set" : price.trim();
+                const raw = (c.properties.community_renewal_price ?? "").trim();
+                let key: string;
+                if (raw === "") {
+                  key = "Not set";
+                } else {
+                  const n = parseFloat(raw.replace(/[^0-9.]/g, ""));
+                  key = isNaN(n) ? raw : String(n);
+                }
                 counts.set(key, (counts.get(key) ?? 0) + 1);
               }
 
