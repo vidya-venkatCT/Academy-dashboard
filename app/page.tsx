@@ -275,28 +275,38 @@ function viewFilters(view: ViewKey, start: string, end: string): HubSpotFilter[]
   }
 }
 
+function fmtPrice(v: string | null | undefined): string {
+  if (!v || v.trim() === "") return "—";
+  const n = parseFloat(v);
+  if (isNaN(n)) return v;
+  return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
 function tableColumns(view: ViewKey): { label: string; value: (c: Contact) => string }[] {
   if (view === "churned") {
     return [
-      { label: "Name",        value: fmtName },
-      { label: "Email",       value: (c) => c.properties.email ?? "—" },
-      { label: "Date Joined", value: (c) => fmtDate(c.properties.date_joined) },
-      { label: "Revoked On",  value: (c) => fmtDate(c.properties.community_access_revoked_date) },
-      { label: "Tags",        value: (c) => c.properties.all_contact_tags ?? "—" },
+      { label: "Name",          value: fmtName },
+      { label: "Email",         value: (c) => c.properties.email ?? "—" },
+      { label: "Renewal Price", value: (c) => fmtPrice(c.properties.community_renewal_price) },
+      { label: "Date Joined",   value: (c) => fmtDate(c.properties.date_joined) },
+      { label: "Revoked On",    value: (c) => fmtDate(c.properties.community_access_revoked_date) },
+      { label: "Tags",          value: (c) => c.properties.all_contact_tags ?? "—" },
     ];
   }
   if (view === "refunded") {
     return [
-      { label: "Name",        value: fmtName },
-      { label: "Email",       value: (c) => c.properties.email ?? "—" },
-      { label: "Date Joined", value: (c) => fmtDate(c.properties.date_joined) },
-      { label: "Expiration",  value: (c) => fmtDate(c.properties.expiration_date) },
-      { label: "Tags",        value: (c) => c.properties.all_contact_tags ?? "—" },
+      { label: "Name",          value: fmtName },
+      { label: "Email",         value: (c) => c.properties.email ?? "—" },
+      { label: "Renewal Price", value: (c) => fmtPrice(c.properties.community_renewal_price) },
+      { label: "Date Joined",   value: (c) => fmtDate(c.properties.date_joined) },
+      { label: "Expiration",    value: (c) => fmtDate(c.properties.expiration_date) },
+      { label: "Tags",          value: (c) => c.properties.all_contact_tags ?? "—" },
     ];
   }
   return [
     { label: "Name",           value: fmtName },
     { label: "Email",          value: (c) => c.properties.email ?? "—" },
+    { label: "Renewal Price",  value: (c) => fmtPrice(c.properties.community_renewal_price) },
     { label: "Date Joined",    value: (c) => fmtDate(c.properties.date_joined) },
     { label: "Latest Renewal", value: (c) => fmtDate(c.properties.latest_renewal_date) },
     { label: "Expiration",     value: (c) => fmtDate(c.properties.expiration_date) },
