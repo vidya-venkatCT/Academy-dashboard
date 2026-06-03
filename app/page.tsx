@@ -1074,25 +1074,52 @@ export default function DashboardPage() {
               pastMonths={pastMonths} nextMonths={nextMonths}
               onSetSpecificMonth={(v) => setState((s) => ({ ...s, period: "specific", specificMonth: v }))} />
 
-            {/* Summary stat */}
-            <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "24px" })}>
-              <StatCard
-                title="Eligible Renewals"
-                subtitle={`Expiring in ${range.label}`}
-                badge="In period"
-                badgeColor="orange"
-                count={eligBreakdownTotal}
-                isLoading={eligBreakdownLoading && eligBreakdownTotal === null}
-                active={false}
-                clickable={false}
-              />
-              {eligBreakdownLoading && eligBreakdownTotal !== null && (
-                <div style={S({ display: "flex", alignItems: "center", gap: "8px", padding: "16px", background: "#fff", border: "1px solid #e6e6e3", borderRadius: "12px", fontSize: "13px", color: "#666" })}>
-                  <span style={S({ color: "#ccc" })}>···</span>
-                  Loading contacts… {eligBreakdownContacts.length} of {eligBreakdownTotal} fetched
+            {/* Summary stats */}
+            {(() => {
+              const knownPrices = eligBreakdownContacts
+                .map((c) => parseFloat((c.properties.community_renewal_price ?? "").replace(/[^0-9.]/g, "")))
+                .filter((n) => !isNaN(n));
+              const totalAtStake = knownPrices.reduce((s, n) => s + n, 0);
+              const avgPerMember = knownPrices.length > 0 ? totalAtStake / knownPrices.length : null;
+              const stillLoading = eligBreakdownLoading && eligBreakdownTotal === null;
+              const loadingMore  = eligBreakdownLoading && eligBreakdownTotal !== null;
+              return (
+                <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "24px" })}>
+                  <StatCard
+                    title="Eligible for Renewal"
+                    subtitle={range.label}
+                    badge="In period"
+                    badgeColor="orange"
+                    count={eligBreakdownTotal}
+                    isLoading={stillLoading}
+                    active={false}
+                    clickable={false}
+                  />
+                  <StatCard
+                    title="Total at Stake"
+                    subtitle={loadingMore ? `Loading… ${eligBreakdownContacts.length} of ${eligBreakdownTotal}` : "known amounts only"}
+                    badge="Revenue"
+                    badgeColor="green"
+                    count={null}
+                    displayValue={stillLoading ? undefined : loadingMore ? "···" : "$" + totalAtStake.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    isLoading={stillLoading}
+                    active={false}
+                    clickable={false}
+                  />
+                  <StatCard
+                    title="Avg per Member"
+                    subtitle="among members with amount set"
+                    badge="Average"
+                    badgeColor="blue"
+                    count={null}
+                    displayValue={stillLoading ? undefined : loadingMore ? "···" : avgPerMember !== null ? "$" + Math.round(avgPerMember).toLocaleString("en-US") : "—"}
+                    isLoading={stillLoading}
+                    active={false}
+                    clickable={false}
+                  />
                 </div>
-              )}
-            </div>
+              );
+            })()}
 
             {/* Breakdown table */}
             {(() => {
