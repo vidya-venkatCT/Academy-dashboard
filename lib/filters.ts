@@ -204,4 +204,5 @@ export const CONTACT_PROPERTIES = [
   "latest_renewal_date",
   "expiration_date",
   "lastmodifieddate",
+  "community_renewal_price",
 ];

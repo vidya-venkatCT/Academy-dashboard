@@ -85,7 +85,7 @@ function generateReportPeriods(granularity: ReportGranularity, year: number): Re
 }
 
 interface State {
-  tab: "report" | "members" | "methodology";
+  tab: "report" | "members" | "methodology" | "renewals";
   period: PeriodType;
   customStart: string | null;
   customEnd: string | null;
@@ -408,6 +408,11 @@ export default function DashboardPage() {
   const [reportRows, setReportRows] = useState<ReportRow[]>([]);
   const [reportLoading, setReportLoading] = useState(false);
 
+  // ── Eligible Renewals breakdown tab state ─────────────────────────────────
+  const [eligBreakdownContacts, setEligBreakdownContacts] = useState<Contact[]>([]);
+  const [eligBreakdownLoading, setEligBreakdownLoading] = useState(false);
+  const [eligBreakdownTotal, setEligBreakdownTotal] = useState<number | null>(null);
+
   const periodState: PeriodState = {
     period: state.period,
     customStart: state.customStart,
@@ -530,12 +535,46 @@ export default function DashboardPage() {
     setReportLoading(false);
   }, []);
 
+  const loadEligBreakdown = useCallback(async (start: string, end: string) => {
+    setEligBreakdownLoading(true);
+    setEligBreakdownContacts([]);
+    setEligBreakdownTotal(null);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const isPast = end < today;
+    const filters = isPast ? eligibleRenewalFilters(start, end) : eligibleRenewalActiveFilters(start, end);
+
+    let all: Contact[] = [];
+    let after: string | undefined;
+    let total: number | null = null;
+
+    try {
+      do {
+        const data = await searchContacts(filters, after);
+        if (total === null) total = data.total;
+        all = [...all, ...data.results];
+        after = data.paging?.next?.after;
+        setEligBreakdownContacts([...all]);
+        setEligBreakdownTotal(total);
+      } while (after);
+    } catch {
+      // leave whatever was loaded
+    }
+
+    setEligBreakdownLoading(false);
+  }, []);
+
   useEffect(() => { loadSnapshotViews(); }, [loadSnapshotViews]);
   useEffect(() => { loadPeriodViews(range.start, range.end); }, // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.period, state.customStart, state.customEnd, state.specificMonth]);
   useEffect(() => {
     if (state.tab === "report") loadReport(reportGranularity, reportYear);
   }, [state.tab, reportGranularity, reportYear, loadReport]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (state.tab === "renewals") loadEligBreakdown(range.start, range.end);
+  }, // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.tab, state.period, state.customStart, state.customEnd, state.specificMonth]);
 
   async function loadMore() {
     const view = state.activeView;
@@ -681,6 +720,7 @@ export default function DashboardPage() {
             { key: "members",     label: "Members" },
             { key: "report",      label: "Summary Report" },
             { key: "methodology", label: "Methodology" },
+            { key: "renewals",    label: "Eligible Renewals" },
           ] as const).map(({ key, label }) => (
             <button key={key} onClick={() => setState((s) => ({ ...s, tab: key, activeView: "primary" }))}
               style={S({ padding: "8px 20px", borderRadius: "8px", border: "1px solid #e6e6e3", background: state.tab === key ? "#1a1a1a" : "#fff", color: state.tab === key ? "#fff" : "#1a1a1a", fontSize: "14px", fontWeight: 600, cursor: "pointer" })}>
@@ -1012,6 +1052,137 @@ export default function DashboardPage() {
               </table>
             </div>
 
+          </div>
+        )}
+
+        {/* ── Eligible Renewals breakdown tab ──────────────────────────────────── */}
+        {state.tab === "renewals" && (
+          <div>
+            <PeriodBar state={state} customTempStart={customTempStart} customTempEnd={customTempEnd}
+              setCustomTempStart={setCustomTempStart} setCustomTempEnd={setCustomTempEnd}
+              onSetPeriod={setPeriod} onApplyCustom={applyCustom}
+              pastMonths={pastMonths} nextMonths={nextMonths}
+              onSetSpecificMonth={(v) => setState((s) => ({ ...s, period: "specific", specificMonth: v }))} />
+
+            {/* Summary stat */}
+            <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "24px" })}>
+              <StatCard
+                title="Eligible Renewals"
+                subtitle={`Expiring in ${range.label}`}
+                badge="In period"
+                badgeColor="orange"
+                count={eligBreakdownTotal}
+                isLoading={eligBreakdownLoading && eligBreakdownTotal === null}
+                active={false}
+                clickable={false}
+              />
+              {eligBreakdownLoading && eligBreakdownTotal !== null && (
+                <div style={S({ display: "flex", alignItems: "center", gap: "8px", padding: "16px", background: "#fff", border: "1px solid #e6e6e3", borderRadius: "12px", fontSize: "13px", color: "#666" })}>
+                  <span style={S({ color: "#ccc" })}>···</span>
+                  Loading contacts… {eligBreakdownContacts.length} of {eligBreakdownTotal} fetched
+                </div>
+              )}
+            </div>
+
+            {/* Breakdown table */}
+            {(() => {
+              // Build price breakdown from loaded contacts
+              const counts = new Map<string, number>();
+              for (const c of eligBreakdownContacts) {
+                const price = c.properties.community_renewal_price ?? "";
+                const key = price.trim() === "" ? "Not set" : price.trim();
+                counts.set(key, (counts.get(key) ?? 0) + 1);
+              }
+
+              // Sort: numeric prices descending, "Not set" last
+              const rows = Array.from(counts.entries()).sort((a, b) => {
+                if (a[0] === "Not set") return 1;
+                if (b[0] === "Not set") return -1;
+                const na = parseFloat(a[0].replace(/[^0-9.]/g, ""));
+                const nb = parseFloat(b[0].replace(/[^0-9.]/g, ""));
+                if (!isNaN(na) && !isNaN(nb)) return nb - na;
+                return a[0].localeCompare(b[0]);
+              });
+
+              const total = eligBreakdownContacts.length;
+
+              function exportBreakdownCSV() {
+                const header = ["Renewal Price", "Count", "% of Total"].map(csvEscape).join(",");
+                const lines = rows.map(([price, count]) =>
+                  [price, String(count), total > 0 ? ((count / total) * 100).toFixed(1) + "%" : "—"].map(csvEscape).join(",")
+                );
+                const csv = [header, ...lines].join("\n");
+                const blob = new Blob([csv], { type: "text/csv" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `eligible_renewals_by_price_${range.label.replace(/\s+/g, "_")}_${todayISO()}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }
+
+              return (
+                <div style={S({ background: "#fff", border: "1px solid #e6e6e3", borderRadius: "12px", overflow: "hidden" })}>
+                  <div style={S({ padding: "16px 20px", borderBottom: "1px solid #e6e6e3", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" })}>
+                    <div>
+                      <span style={S({ fontSize: "14px", fontWeight: 600 })}>Breakdown by Renewal Price</span>
+                      {total > 0 && (
+                        <span style={S({ fontSize: "13px", color: "#666", marginLeft: "8px" })}>
+                          {total.toLocaleString()} contacts{eligBreakdownLoading ? " (loading more…)" : ""}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={exportBreakdownCSV}
+                      disabled={eligBreakdownLoading || rows.length === 0}
+                      style={S({ background: "#fff", border: "1px solid #e6e6e3", borderRadius: "6px", padding: "7px 12px", fontSize: "13px", fontWeight: 500, cursor: (eligBreakdownLoading || rows.length === 0) ? "not-allowed" : "pointer", color: "#1a1a1a" })}
+                    >
+                      Export CSV
+                    </button>
+                  </div>
+                  <div style={S({ overflowX: "auto" })}>
+                    <table style={S({ width: "100%", borderCollapse: "collapse", fontSize: "13px" })}>
+                      <thead>
+                        <tr style={S({ background: "#f7f7f5" })}>
+                          <th style={S({ padding: "12px 20px", textAlign: "left", fontWeight: 600, fontSize: "12px", color: "#666", borderBottom: "1px solid #e6e6e3" })}>Renewal Price</th>
+                          <th style={S({ padding: "12px 20px", textAlign: "right", fontWeight: 600, fontSize: "12px", color: "#666", borderBottom: "1px solid #e6e6e3" })}>Count</th>
+                          <th style={S({ padding: "12px 20px", textAlign: "right", fontWeight: 600, fontSize: "12px", color: "#666", borderBottom: "1px solid #e6e6e3" })}>% of Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.length === 0 && !eligBreakdownLoading && (
+                          <tr><td colSpan={3} style={S({ padding: "32px", textAlign: "center", color: "#999" })}>No eligible renewals for this period</td></tr>
+                        )}
+                        {rows.length === 0 && eligBreakdownLoading && (
+                          <tr><td colSpan={3} style={S({ padding: "32px", textAlign: "center", color: "#999" })}>Loading…</td></tr>
+                        )}
+                        {rows.map(([price, count], i) => {
+                          const pct = total > 0 ? ((count / total) * 100).toFixed(1) + "%" : "—";
+                          const isNotSet = price === "Not set";
+                          return (
+                            <tr key={price} style={S({ borderBottom: "1px solid #f0f0ee", background: i % 2 === 0 ? "#fff" : "#fafaf9" })}>
+                              <td style={S({ padding: "11px 20px", fontWeight: 600, color: isNotSet ? "#999" : "#1a1a1a", fontStyle: isNotSet ? "italic" : "normal" })}>
+                                {isNotSet ? "Not set" : `$${parseFloat(price).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`}
+                              </td>
+                              <td style={S({ padding: "11px 20px", textAlign: "right", color: "#1a1a1a" })}>{count.toLocaleString()}</td>
+                              <td style={S({ padding: "11px 20px", textAlign: "right", color: "#666" })}>{pct}</td>
+                            </tr>
+                          );
+                        })}
+                        {/* Totals row */}
+                        {rows.length > 0 && !eligBreakdownLoading && (
+                          <tr style={S({ borderTop: "2px solid #e6e6e3", background: "#f7f7f5" })}>
+                            <td style={S({ padding: "11px 20px", fontWeight: 700 })}>Total</td>
+                            <td style={S({ padding: "11px 20px", textAlign: "right", fontWeight: 700 })}>{total.toLocaleString()}</td>
+                            <td style={S({ padding: "11px 20px", textAlign: "right", fontWeight: 700 })}>100%</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 
