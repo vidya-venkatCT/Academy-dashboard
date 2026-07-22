@@ -13,6 +13,7 @@ import {
   eligibleRenewalFilters,
   eligibleRenewalActiveFilters,
   refundedFilters,
+  acquiredBusinessFilters,
   HubSpotFilter,
   CONTACT_PROPERTIES,
 } from "@/lib/filters";
@@ -35,7 +36,8 @@ export type ViewKey =
   | "churned"
   | "renewal"
   | "eligible"
-  | "refunded";
+  | "refunded"
+  | "acquired";
 
 interface Contact {
   id: string;
@@ -260,7 +262,7 @@ function StatCard({ title, subtitle, badge, badgeColor, count, displayValue, isL
   );
 }
 
-function viewFilters(view: ViewKey, start: string, end: string): HubSpotFilter[] {
+function viewFilters(view: ViewKey, start: string, end: string): HubSpotFilter[] | HubSpotFilter[][] {
   const today = new Date().toISOString().slice(0, 10);
   const isPast = end < today;
   switch (view) {
@@ -272,6 +274,7 @@ function viewFilters(view: ViewKey, start: string, end: string): HubSpotFilter[]
     case "renewal":   return renewalActualFilters(start, end);
     case "eligible":  return isPast ? eligibleRenewalFilters(start, end) : eligibleRenewalActiveFilters(start, end);
     case "refunded":  return refundedFilters(start, end);
+    case "acquired":  return acquiredBusinessFilters();
   }
 }
 
@@ -303,6 +306,16 @@ function tableColumns(view: ViewKey): { label: string; value: (c: Contact) => st
       { label: "Tags",          value: (c) => c.properties.all_contact_tags ?? "—" },
     ];
   }
+  if (view === "acquired") {
+    return [
+      { label: "Name",          value: fmtName },
+      { label: "Email",         value: (c) => c.properties.email ?? "—" },
+      { label: "Renewal Price", value: (c) => fmtPrice(c.properties.community_renewal_price) },
+      { label: "Owner Circle",  value: (c) => c.properties.owner_circle ?? "—" },
+      { label: "Date Joined",   value: (c) => fmtDate(c.properties.date_joined) },
+      { label: "Tags",          value: (c) => c.properties.all_contact_tags ?? "—" },
+    ];
+  }
   return [
     { label: "Name",           value: fmtName },
     { label: "Email",          value: (c) => c.properties.email ?? "—" },
@@ -322,6 +335,7 @@ const VIEW_TITLES: Record<ViewKey, string> = {
   renewal:   "Renewals — Actual",
   eligible:  "Eligible Renewals",
   refunded:  "Refunded Members",
+  acquired:  "Has Acquired a Business",
 };
 
 function PeriodBar({ state, customTempStart, customTempEnd, setCustomTempStart, setCustomTempEnd, onSetPeriod, onApplyCustom, pastMonths, nextMonths, onSetSpecificMonth }: {
@@ -418,6 +432,10 @@ export default function DashboardPage() {
   const [reportRows, setReportRows] = useState<ReportRow[]>([]);
   const [reportLoading, setReportLoading] = useState(false);
 
+  // ── Contact list sort state ───────────────────────────────────────────────
+  const [sortCol, setSortCol] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
   // ── Eligible Renewals breakdown tab state ─────────────────────────────────
   const [eligBreakdownContacts, setEligBreakdownContacts] = useState<Contact[]>([]);
   const [eligBreakdownLoading, setEligBreakdownLoading] = useState(false);
@@ -437,24 +455,25 @@ export default function DashboardPage() {
       : "—";
 
   const loadSnapshotViews = useCallback(async () => {
-    setLoading((l) => ({ ...l, current: true, primary: true, secondary: true }));
-    const [all, prim, sec] = await Promise.allSettled([
+    setLoading((l) => ({ ...l, current: true, primary: true, secondary: true, acquired: true }));
+    const [all, prim, sec, acq] = await Promise.allSettled([
       searchContacts(currentAllFilters()),
       searchContacts(primaryBaseFilters()),
       searchContacts(currentSecondaryFilters()),
+      searchContacts(acquiredBusinessFilters()),
     ]);
     setState((s) => {
       const snap = (r: PromiseSettledResult<HubSpotResult>) =>
         r.status === "fulfilled" ? r.value : null;
       return {
         ...s,
-        counts: { ...s.counts, current: snap(all)?.total ?? null, primary: snap(prim)?.total ?? null, secondary: snap(sec)?.total ?? null },
-        rows:   { ...s.rows,   current: snap(all)?.results ?? [], primary: snap(prim)?.results ?? [], secondary: snap(sec)?.results ?? [] },
-        totals: { ...s.totals, current: snap(all)?.total ?? null, primary: snap(prim)?.total ?? null, secondary: snap(sec)?.total ?? null },
-        offsets: { ...s.offsets, current: snap(all)?.paging?.next?.after, primary: snap(prim)?.paging?.next?.after, secondary: snap(sec)?.paging?.next?.after },
+        counts: { ...s.counts, current: snap(all)?.total ?? null, primary: snap(prim)?.total ?? null, secondary: snap(sec)?.total ?? null, acquired: snap(acq)?.total ?? null },
+        rows:   { ...s.rows,   current: snap(all)?.results ?? [], primary: snap(prim)?.results ?? [], secondary: snap(sec)?.results ?? [], acquired: snap(acq)?.results ?? [] },
+        totals: { ...s.totals, current: snap(all)?.total ?? null, primary: snap(prim)?.total ?? null, secondary: snap(sec)?.total ?? null, acquired: snap(acq)?.total ?? null },
+        offsets: { ...s.offsets, current: snap(all)?.paging?.next?.after, primary: snap(prim)?.paging?.next?.after, secondary: snap(sec)?.paging?.next?.after, acquired: snap(acq)?.paging?.next?.after },
       };
     });
-    setLoading((l) => ({ ...l, current: false, primary: false, secondary: false }));
+    setLoading((l) => ({ ...l, current: false, primary: false, secondary: false, acquired: false }));
   }, []);
 
   const loadPeriodViews = useCallback(async (start: string, end: string) => {
@@ -632,7 +651,11 @@ export default function DashboardPage() {
 
   function setPeriod(p: PeriodType) { setState((s) => ({ ...s, period: p })); }
   function applyCustom() { setState((s) => ({ ...s, period: "custom", customStart: customTempStart, customEnd: customTempEnd })); }
-  function setView(v: ViewKey) { setState((s) => ({ ...s, activeView: v })); }
+  function setView(v: ViewKey) {
+    setState((s) => ({ ...s, activeView: v }));
+    setSortCol(null);
+    setSortDir("asc");
+  }
 
   function exportViewCSV() {
     const rows = state.rows[state.activeView];
@@ -701,6 +724,35 @@ export default function DashboardPage() {
   const activeTotal = state.totals[state.activeView];
   const cols = tableColumns(state.activeView);
 
+  // Sort the visible rows client-side. Renewal Price sorts numerically; others sort as strings.
+  const sortedRows = (() => {
+    if (!sortCol) return activeRows;
+    const col = cols.find((c) => c.label === sortCol);
+    if (!col) return activeRows;
+    return [...activeRows].sort((a, b) => {
+      const av = col.value(a);
+      const bv = col.value(b);
+      // Numeric sort for price column
+      if (sortCol === "Renewal Price") {
+        const an = parseFloat(av.replace(/[^0-9.]/g, ""));
+        const bn = parseFloat(bv.replace(/[^0-9.]/g, ""));
+        const diff = (isNaN(an) ? -Infinity : an) - (isNaN(bn) ? -Infinity : bn);
+        return sortDir === "asc" ? diff : -diff;
+      }
+      const cmp = av.localeCompare(bv);
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  })();
+
+  function handleSortClick(label: string) {
+    if (sortCol === label) {
+      setSortDir((d) => d === "asc" ? "desc" : "asc");
+    } else {
+      setSortCol(label);
+      setSortDir("asc");
+    }
+  }
+
   const S = (style: React.CSSProperties) => style;
 
   return (
@@ -748,6 +800,7 @@ export default function DashboardPage() {
               <StatCard title="Current Members" subtitle="Mastermind Member · not revoked" badge="All" badgeColor="green" count={state.counts.current} isLoading={loading.current} active={state.activeView === "current"} onClick={() => setView("current")} />
               <StatCard title="Current Primary" subtitle="Primary members only" badge="Primary" badgeColor="cyan" count={state.counts.primary} isLoading={loading.primary} active={state.activeView === "primary"} onClick={() => setView("primary")} />
               <StatCard title="Current Secondary" subtitle="Under a primary member" badge="Secondary" badgeColor="purple" count={state.counts.secondary} isLoading={loading.secondary} active={state.activeView === "secondary"} onClick={() => setView("secondary")} />
+              <StatCard title="Has Acquired a Business" subtitle="Owner Circle or Acquired post-CC" badge="Acquired" badgeColor="orange" count={state.counts.acquired} isLoading={loading.acquired} active={state.activeView === "acquired"} onClick={() => setView("acquired")} />
             </div>
 
             <PeriodBar state={state} customTempStart={customTempStart} customTempEnd={customTempEnd}
@@ -1259,18 +1312,25 @@ export default function DashboardPage() {
             <table style={S({ width: "100%", borderCollapse: "collapse", fontSize: "13px" })}>
               <thead>
                 <tr style={S({ background: "#f7f7f5" })}>
-                  {cols.map((c) => (
-                    <th key={c.label} style={S({ padding: "10px 16px", textAlign: "left", fontWeight: 600, fontSize: "12px", color: "#666", borderBottom: "1px solid #e6e6e3", whiteSpace: "nowrap" })}>
-                      {c.label}
-                    </th>
-                  ))}
+                  {cols.map((c) => {
+                    const active = sortCol === c.label;
+                    const arrow = active ? (sortDir === "asc" ? " ↑" : " ↓") : " ↕";
+                    return (
+                      <th key={c.label}
+                        onClick={() => handleSortClick(c.label)}
+                        style={S({ padding: "10px 16px", textAlign: "left", fontWeight: 600, fontSize: "12px", color: active ? "#1a1a1a" : "#666", borderBottom: "1px solid #e6e6e3", whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" })}>
+                        {c.label}
+                        <span style={S({ opacity: active ? 1 : 0.35, fontSize: "10px", marginLeft: "2px" })}>{arrow}</span>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
-                {activeRows.length === 0 && !loading[state.activeView] && (
+                {sortedRows.length === 0 && !loading[state.activeView] && (
                   <tr><td colSpan={cols.length} style={S({ padding: "32px 16px", textAlign: "center", color: "#666" })}>No results for this period</td></tr>
                 )}
-                {activeRows.map((contact, i) => (
+                {sortedRows.map((contact, i) => (
                   <tr key={contact.id} style={S({ borderBottom: "1px solid #f0f0ee", background: i % 2 === 0 ? "#fff" : "#fafaf9" })}>
                     {cols.map((c, ci) => (
                       <td key={c.label} style={S({ padding: "10px 16px", verticalAlign: "top", maxWidth: ci === cols.length - 1 ? "280px" : undefined, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: ci === cols.length - 1 ? "normal" : "nowrap" })}>

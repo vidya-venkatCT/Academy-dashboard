@@ -12,7 +12,8 @@ export type ViewKey =
   | "churned"
   | "renewal"
   | "eligible"
-  | "refunded";
+  | "refunded"
+  | "acquired";
 
 function toEpochMs(dateStr: string, endOfDay = false): string {
   const suffix = endOfDay ? "T23:59:59Z" : "T00:00:00Z";
@@ -191,6 +192,28 @@ export function refundedFilters(start: string, end: string): HubSpotFilter[] {
   ];
 }
 
+/**
+ * Has Acquired a Business — current members where owner_circle = "yes" OR tagged "Acquired post-CC".
+ * Two OR groups; HubSpot deduplicates contacts matching both.
+ */
+export function acquiredBusinessFilters(): HubSpotFilter[][] {
+  const base = [
+    { propertyName: "all_contact_tags", operator: "CONTAINS_TOKEN",     value: "Mastermind Member" },
+    { propertyName: "all_contact_tags", operator: "NOT_CONTAINS_TOKEN", value: "CT Team" },
+    { propertyName: "community_access_revoked", operator: "NEQ",        value: "true" },
+  ];
+  return [
+    [
+      ...base,
+      { propertyName: "owner_circle", operator: "EQ", value: "yes" },
+    ],
+    [
+      ...base,
+      { propertyName: "all_contact_tags", operator: "CONTAINS_TOKEN", value: "Acquired post-CC" },
+    ],
+  ];
+}
+
 // ─── Properties to fetch ─────────────────────────────────────────────────────
 
 export const CONTACT_PROPERTIES = [
@@ -205,4 +228,5 @@ export const CONTACT_PROPERTIES = [
   "expiration_date",
   "lastmodifieddate",
   "community_renewal_price",
+  "owner_circle",
 ];
