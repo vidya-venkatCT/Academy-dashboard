@@ -193,7 +193,8 @@ export function refundedFilters(start: string, end: string): HubSpotFilter[] {
 }
 
 /**
- * Has Acquired a Business — current members where owner_circle = "yes" OR tagged "Acquired post-CC".
+ * Has Acquired a Business — current members where Business Owner = true OR Owner's Circle = Yes.
+ * Matches the HubSpot list "Academy | Current members who own a business" (list 10953).
  * Two OR groups; HubSpot deduplicates contacts matching both.
  */
 export function acquiredBusinessFilters(): HubSpotFilter[][] {
@@ -205,11 +206,11 @@ export function acquiredBusinessFilters(): HubSpotFilter[][] {
   return [
     [
       ...base,
-      { propertyName: "owner_circle", operator: "EQ", value: "yes" },
+      { propertyName: "business_owner", operator: "EQ", value: "true" },
     ],
     [
       ...base,
-      { propertyName: "all_contact_tags", operator: "CONTAINS_TOKEN", value: "Acquired post-CC" },
+      { propertyName: "owner_s_circle", operator: "EQ", value: "true" },
     ],
   ];
 }
@@ -228,5 +229,6 @@ export const CONTACT_PROPERTIES = [
   "expiration_date",
   "lastmodifieddate",
   "community_renewal_price",
-  "owner_circle",
+  "business_owner",
+  "owner_s_circle",
 ];

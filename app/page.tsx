@@ -208,7 +208,7 @@ function last30Days(): { start: string; end: string } {
   return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
 }
 
-const ALL_VIEWS: ViewKey[] = ["current", "primary", "secondary", "new", "churned", "renewal", "eligible", "refunded"];
+const ALL_VIEWS: ViewKey[] = ["current", "primary", "secondary", "new", "churned", "renewal", "eligible", "refunded", "acquired"];
 
 function makeNullRecord<T>(val: T): Record<ViewKey, T> {
   return Object.fromEntries(ALL_VIEWS.map((k) => [k, val])) as Record<ViewKey, T>;
@@ -308,12 +308,13 @@ function tableColumns(view: ViewKey): { label: string; value: (c: Contact) => st
   }
   if (view === "acquired") {
     return [
-      { label: "Name",          value: fmtName },
-      { label: "Email",         value: (c) => c.properties.email ?? "—" },
-      { label: "Renewal Price", value: (c) => fmtPrice(c.properties.community_renewal_price) },
-      { label: "Owner Circle",  value: (c) => c.properties.owner_circle ?? "—" },
-      { label: "Date Joined",   value: (c) => fmtDate(c.properties.date_joined) },
-      { label: "Tags",          value: (c) => c.properties.all_contact_tags ?? "—" },
+      { label: "Name",            value: fmtName },
+      { label: "Email",           value: (c) => c.properties.email ?? "—" },
+      { label: "Renewal Price",   value: (c) => fmtPrice(c.properties.community_renewal_price) },
+      { label: "Business Owner",  value: (c) => c.properties.business_owner ?? "—" },
+      { label: "Owner's Circle",  value: (c) => c.properties.owner_s_circle ?? "—" },
+      { label: "Date Joined",     value: (c) => fmtDate(c.properties.date_joined) },
+      { label: "Tags",            value: (c) => c.properties.all_contact_tags ?? "—" },
     ];
   }
   return [
