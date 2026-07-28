@@ -180,7 +180,9 @@ function fmtDate(v: string | null | undefined): string {
   if (!v) return "—";
   const d = new Date(v);
   if (isNaN(d.getTime())) return v;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  // Force UTC so epoch-ms date properties (stored as midnight UTC) don't shift
+  // to the previous day when interpreted in US timezones.
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 }
 
 function fmtName(c: Contact): string {
