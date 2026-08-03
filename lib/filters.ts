@@ -27,13 +27,16 @@ function shiftYearBack(dateStr: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** 4 filters — the base for all primary-member queries */
+const NO_CT_EMAIL: HubSpotFilter = { propertyName: "email", operator: "NOT_CONTAINS_TOKEN", value: "contrarianthink.com" };
+
+/** 5 filters — the base for all primary-member queries */
 export function primaryBaseFilters(): HubSpotFilter[] {
   return [
     { propertyName: "all_contact_tags", operator: "CONTAINS_TOKEN",     value: "Mastermind Member" },
     { propertyName: "all_contact_tags", operator: "NOT_CONTAINS_TOKEN", value: "Secondary Member" },
     { propertyName: "all_contact_tags", operator: "NOT_CONTAINS_TOKEN", value: "CT Team" },
     { propertyName: "community_access_revoked", operator: "NEQ",        value: "true" },
+    NO_CT_EMAIL,
   ];
 }
 
@@ -46,6 +49,7 @@ export function currentAllFilters(): HubSpotFilter[] {
     { propertyName: "all_contact_tags", operator: "NOT_CONTAINS_TOKEN", value: "CT Team" },
     { propertyName: "all_contact_tags", operator: "NOT_CONTAINS_TOKEN", value: "UA Mastermind Membership Revoked" },
     { propertyName: "community_access_revoked", operator: "NEQ",        value: "true" },
+    NO_CT_EMAIL,
   ];
 }
 
@@ -56,6 +60,7 @@ export function currentSecondaryFilters(): HubSpotFilter[] {
     { propertyName: "all_contact_tags", operator: "CONTAINS_TOKEN",     value: "Secondary Member" },
     { propertyName: "all_contact_tags", operator: "NOT_CONTAINS_TOKEN", value: "CT Team" },
     { propertyName: "community_access_revoked", operator: "NEQ",        value: "true" },
+    NO_CT_EMAIL,
   ];
 }
 
@@ -68,6 +73,7 @@ export function newJoinersFilters(start: string, end: string): HubSpotFilter[] {
     { propertyName: "community_access_revoked", operator: "NEQ",        value: "true" },
     { propertyName: "date_joined", operator: "GTE", value: toEpochMs(start) },
     { propertyName: "date_joined", operator: "LTE", value: toEpochMs(end, true) },
+    NO_CT_EMAIL,
   ];
 }
 
@@ -79,6 +85,7 @@ export function newJoinersPrimaryFilters(start: string, end: string): HubSpotFil
     { propertyName: "community_access_revoked", operator: "NEQ",        value: "true" },
     { propertyName: "date_joined", operator: "GTE", value: toEpochMs(start) },
     { propertyName: "date_joined", operator: "LTE", value: toEpochMs(end, true) },
+    NO_CT_EMAIL,
   ];
 }
 
@@ -90,15 +97,17 @@ export function newJoinersSecondaryFilters(start: string, end: string): HubSpotF
     { propertyName: "community_access_revoked", operator: "NEQ",        value: "true" },
     { propertyName: "date_joined", operator: "GTE", value: toEpochMs(start) },
     { propertyName: "date_joined", operator: "LTE", value: toEpochMs(end, true) },
+    NO_CT_EMAIL,
   ];
 }
 
-/** Churned — 3 filters (community_access_revoked_date available from Apr 13 2026) */
+/** Churned — 4 filters (community_access_revoked_date available from Apr 13 2026) */
 export function churnedFilters(start: string, end: string): HubSpotFilter[] {
   return [
     { propertyName: "community_access_revoked", operator: "EQ",  value: "true" },
     { propertyName: "community_access_revoked_date", operator: "GTE", value: `${start}T00:00:00Z` },
     { propertyName: "community_access_revoked_date", operator: "LTE", value: `${end}T23:59:59Z` },
+    NO_CT_EMAIL,
   ];
 }
 
@@ -110,6 +119,7 @@ export function renewalActualFilters(start: string, end: string): HubSpotFilter[
     { propertyName: "all_contact_tags", operator: "NOT_CONTAINS_TOKEN", value: "CT Team" },
     { propertyName: "latest_renewal_date", operator: "GTE", value: toEpochMs(start) },
     { propertyName: "latest_renewal_date", operator: "LTE", value: toEpochMs(end, true) },
+    NO_CT_EMAIL,
   ];
 }
 
@@ -127,11 +137,13 @@ export function renewalActualMultiFilters(start: string, end: string): HubSpotFi
       { propertyName: "all_contact_tags", operator: "NOT_CONTAINS_TOKEN", value: "CT Team" },
       { propertyName: "latest_renewal_date", operator: "GTE", value: toEpochMs(start) },
       { propertyName: "latest_renewal_date", operator: "LTE", value: toEpochMs(end, true) },
+      NO_CT_EMAIL,
     ],
     [
       { propertyName: "all_contact_tags", operator: "CONTAINS_TOKEN", value: "CC Renewal 2026" },
       { propertyName: "date_joined", operator: "GTE", value: toEpochMs(shiftYearBack(start)) },
       { propertyName: "date_joined", operator: "LTE", value: toEpochMs(shiftYearBack(end), true) },
+      NO_CT_EMAIL,
     ],
   ];
 }
@@ -141,14 +153,14 @@ export function renewalActualMultiFilters(start: string, end: string): HubSpotFi
  * Eligible Renewals — PAST periods (end date before today).
  * No revoked check: captures everyone whose expiration fell in the period, including
  * members who have since churned (their access was revoked after they didn't renew).
- * CT Team excluded in place of the revoked check to stay within the 6-filter cap.
+ * Email domain exclusion replaces the CT Team tag exclusion to stay within the 6-filter cap.
  */
 export function eligibleRenewalFilters(start: string, end: string): HubSpotFilter[] {
   return [
     { propertyName: "all_contact_tags", operator: "CONTAINS_TOKEN",     value: "Mastermind Member" },
     { propertyName: "all_contact_tags", operator: "NOT_CONTAINS_TOKEN", value: "Secondary Member" },
     { propertyName: "all_contact_tags", operator: "NOT_CONTAINS_TOKEN", value: "Acquired post-CC" },
-    { propertyName: "all_contact_tags", operator: "NOT_CONTAINS_TOKEN", value: "CT Team" },
+    NO_CT_EMAIL,
     { propertyName: "expiration_date",  operator: "GTE", value: toEpochMs(start) },
     { propertyName: "expiration_date",  operator: "LTE", value: toEpochMs(end, true) },
   ];
@@ -157,8 +169,8 @@ export function eligibleRenewalFilters(start: string, end: string): HubSpotFilte
 /**
  * Eligible Renewals — CURRENT & FUTURE periods (end date on or after today).
  * Revoked check included: shows only active members with an upcoming expiration.
- * CT Team not explicitly excluded (dropped to fit revoked check in 6-filter cap —
- * small overcount of ~97 CT Team members across the year).
+ * At the 6-filter cap — email domain exclusion not possible here; contrarianthink.com
+ * contacts are stripped from the displayed list client-side in page.tsx.
  */
 export function eligibleRenewalActiveFilters(start: string, end: string): HubSpotFilter[] {
   return [
@@ -181,12 +193,13 @@ export function ccRenewal2026Filters(start: string, end: string): HubSpotFilter[
   ];
 }
 
-/** Refunded — 5 filters */
+/** Refunded — 6 filters */
 export function refundedFilters(start: string, end: string): HubSpotFilter[] {
   return [
     { propertyName: "all_contact_tags", operator: "CONTAINS_TOKEN",     value: "CC Refunded" },
     { propertyName: "all_contact_tags", operator: "CONTAINS_TOKEN",     value: "Mastermind Member" },
     { propertyName: "all_contact_tags", operator: "NOT_CONTAINS_TOKEN", value: "CT Team" },
+    NO_CT_EMAIL,
     { propertyName: "expiration_date",  operator: "GTE", value: toEpochMs(start) },
     { propertyName: "expiration_date",  operator: "LTE", value: toEpochMs(end, true) },
   ];
@@ -202,6 +215,7 @@ export function acquiredBusinessFilters(): HubSpotFilter[][] {
     { propertyName: "all_contact_tags", operator: "CONTAINS_TOKEN",     value: "Mastermind Member" },
     { propertyName: "all_contact_tags", operator: "NOT_CONTAINS_TOKEN", value: "CT Team" },
     { propertyName: "community_access_revoked", operator: "NEQ",        value: "true" },
+    NO_CT_EMAIL,
   ];
   return [
     [

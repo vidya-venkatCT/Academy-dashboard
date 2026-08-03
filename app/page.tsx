@@ -287,14 +287,58 @@ function fmtPrice(v: string | null | undefined): string {
   return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
-function tableColumns(view: ViewKey): { label: string; value: (c: Contact) => string }[] {
+type TableCol = { label: string; value: (c: Contact) => string; sortKey?: (c: Contact) => string };
+
+/** Return the ISO date string for the Monday of the week containing the given raw HubSpot date value. */
+function getWeekStartStr(rawDateVal: string | null | undefined): string | null {
+  if (!rawDateVal) return null;
+  const ms = new Date(rawDateVal).getTime();
+  if (isNaN(ms)) return null;
+  const d = new Date(ms);
+  const dow = d.getUTCDay(); // 0=Sun
+  d.setUTCDate(d.getUTCDate() - (dow === 0 ? 6 : dow - 1));
+  return d.toISOString().slice(0, 10);
+}
+
+/** Return all Mon–Sun week buckets that overlap with the given period (YYYY-MM-DD). */
+function getWeeksInRange(start: string, end: string): { ws: string; we: string; label: string }[] {
+  const d = new Date(start + "T00:00:00Z");
+  const endMs = new Date(end + "T00:00:00Z").getTime();
+  // Back up to Monday
+  const dow = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() - (dow === 0 ? 6 : dow - 1));
+  const weeks: { ws: string; we: string; label: string }[] = [];
+  while (d.getTime() <= endMs) {
+    const wsStr = d.toISOString().slice(0, 10);
+    const we = new Date(d); we.setUTCDate(d.getUTCDate() + 6);
+    const weStr = we.toISOString().slice(0, 10);
+    const fmtD = (dt: Date) => dt.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+    const label = d.getUTCMonth() === we.getUTCMonth()
+      ? `${fmtD(d).replace(/\s\d+$/, "")} ${d.getUTCDate()}–${we.getUTCDate()}`
+      : `${fmtD(d)} – ${fmtD(we)}`;
+    weeks.push({ ws: wsStr, we: weStr, label });
+    d.setUTCDate(d.getUTCDate() + 7);
+  }
+  return weeks;
+}
+
+function dateSort(prop: string): (c: Contact) => string {
+  return (c) => {
+    const v = c.properties[prop];
+    if (!v) return "0";
+    const ms = new Date(v).getTime();
+    return isNaN(ms) ? "0" : String(ms);
+  };
+}
+
+function tableColumns(view: ViewKey): TableCol[] {
   if (view === "churned") {
     return [
       { label: "Name",          value: fmtName },
       { label: "Email",         value: (c) => c.properties.email ?? "—" },
       { label: "Renewal Price", value: (c) => fmtPrice(c.properties.community_renewal_price) },
-      { label: "Date Joined",   value: (c) => fmtDate(c.properties.date_joined) },
-      { label: "Revoked On",    value: (c) => fmtDate(c.properties.community_access_revoked_date) },
+      { label: "Date Joined",   value: (c) => fmtDate(c.properties.date_joined),                       sortKey: dateSort("date_joined") },
+      { label: "Revoked On",    value: (c) => fmtDate(c.properties.community_access_revoked_date),     sortKey: dateSort("community_access_revoked_date") },
       { label: "Tags",          value: (c) => c.properties.all_contact_tags ?? "—" },
     ];
   }
@@ -303,8 +347,8 @@ function tableColumns(view: ViewKey): { label: string; value: (c: Contact) => st
       { label: "Name",          value: fmtName },
       { label: "Email",         value: (c) => c.properties.email ?? "—" },
       { label: "Renewal Price", value: (c) => fmtPrice(c.properties.community_renewal_price) },
-      { label: "Date Joined",   value: (c) => fmtDate(c.properties.date_joined) },
-      { label: "Expiration",    value: (c) => fmtDate(c.properties.expiration_date) },
+      { label: "Date Joined",   value: (c) => fmtDate(c.properties.date_joined),         sortKey: dateSort("date_joined") },
+      { label: "Expiration",    value: (c) => fmtDate(c.properties.expiration_date),     sortKey: dateSort("expiration_date") },
       { label: "Tags",          value: (c) => c.properties.all_contact_tags ?? "—" },
     ];
   }
@@ -315,7 +359,7 @@ function tableColumns(view: ViewKey): { label: string; value: (c: Contact) => st
       { label: "Renewal Price",   value: (c) => fmtPrice(c.properties.community_renewal_price) },
       { label: "Business Owner",  value: (c) => c.properties.business_owner ?? "—" },
       { label: "Owner's Circle",  value: (c) => c.properties.owner_s_circle ?? "—" },
-      { label: "Date Joined",     value: (c) => fmtDate(c.properties.date_joined) },
+      { label: "Date Joined",     value: (c) => fmtDate(c.properties.date_joined),   sortKey: dateSort("date_joined") },
       { label: "Tags",            value: (c) => c.properties.all_contact_tags ?? "—" },
     ];
   }
@@ -323,9 +367,9 @@ function tableColumns(view: ViewKey): { label: string; value: (c: Contact) => st
     { label: "Name",           value: fmtName },
     { label: "Email",          value: (c) => c.properties.email ?? "—" },
     { label: "Renewal Price",  value: (c) => fmtPrice(c.properties.community_renewal_price) },
-    { label: "Date Joined",    value: (c) => fmtDate(c.properties.date_joined) },
-    { label: "Latest Renewal", value: (c) => fmtDate(c.properties.latest_renewal_date) },
-    { label: "Expiration",     value: (c) => fmtDate(c.properties.expiration_date) },
+    { label: "Date Joined",    value: (c) => fmtDate(c.properties.date_joined),         sortKey: dateSort("date_joined") },
+    { label: "Latest Renewal", value: (c) => fmtDate(c.properties.latest_renewal_date), sortKey: dateSort("latest_renewal_date") },
+    { label: "Expiration",     value: (c) => fmtDate(c.properties.expiration_date),     sortKey: dateSort("expiration_date") },
   ];
 }
 
@@ -443,6 +487,8 @@ export default function DashboardPage() {
   const [eligBreakdownContacts, setEligBreakdownContacts] = useState<Contact[]>([]);
   const [eligBreakdownLoading, setEligBreakdownLoading] = useState(false);
   const [eligBreakdownTotal, setEligBreakdownTotal] = useState<number | null>(null);
+  const [eligActualContacts, setEligActualContacts] = useState<Contact[]>([]);
+  const [eligActualLoading, setEligActualLoading] = useState(false);
 
   const periodState: PeriodState = {
     period: state.period,
@@ -584,7 +630,10 @@ export default function DashboardPage() {
       do {
         const data = await searchContacts(filters, after);
         if (total === null) total = data.total;
-        all = [...all, ...data.results];
+        const fresh = data.results.filter(
+          (c) => !c.properties.email?.toLowerCase().includes("contrarianthink.com")
+        );
+        all = [...all, ...fresh];
         after = data.paging?.next?.after;
         setEligBreakdownContacts([...all]);
         setEligBreakdownTotal(total);
@@ -596,6 +645,27 @@ export default function DashboardPage() {
     setEligBreakdownLoading(false);
   }, []);
 
+  const loadEligActualRenewals = useCallback(async (start: string, end: string) => {
+    setEligActualLoading(true);
+    setEligActualContacts([]);
+    let all: Contact[] = [];
+    let after: string | undefined;
+    try {
+      do {
+        const data = await searchContacts(renewalActualFilters(start, end), after);
+        const fresh = data.results.filter(
+          (c) => !c.properties.email?.toLowerCase().includes("contrarianthink.com")
+        );
+        all = [...all, ...fresh];
+        after = data.paging?.next?.after;
+        setEligActualContacts([...all]);
+      } while (after);
+    } catch {
+      // leave whatever was loaded
+    }
+    setEligActualLoading(false);
+  }, []);
+
   useEffect(() => { loadSnapshotViews(); }, [loadSnapshotViews]);
   useEffect(() => { loadPeriodViews(range.start, range.end); }, // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.period, state.customStart, state.customEnd, state.specificMonth]);
@@ -604,7 +674,10 @@ export default function DashboardPage() {
   }, [state.tab, reportGranularity, reportYear, loadReport]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (state.tab === "renewals") loadEligBreakdown(range.start, range.end);
+    if (state.tab === "renewals") {
+      loadEligBreakdown(range.start, range.end);
+      loadEligActualRenewals(range.start, range.end);
+    }
   }, // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.tab, state.period, state.customStart, state.customEnd, state.specificMonth]);
 
@@ -723,25 +796,30 @@ export default function DashboardPage() {
 
   const pastMonths = getSpecificMonthOptions();
   const nextMonths = getNextMonthOptions();
-  const activeRows = state.rows[state.activeView];
+  const activeRows = (state.rows[state.activeView] ?? []).filter(
+    (c) => !c.properties.email?.toLowerCase().includes("contrarianthink.com")
+  );
   const activeTotal = state.totals[state.activeView];
   const cols = tableColumns(state.activeView);
 
-  // Sort the visible rows client-side. Renewal Price sorts numerically; others sort as strings.
+  // Sort the visible rows client-side.
+  // Date columns use sortKey (epoch ms) for numeric sort; price also sorts numerically.
   const sortedRows = (() => {
     if (!sortCol) return activeRows;
     const col = cols.find((c) => c.label === sortCol);
     if (!col) return activeRows;
     return [...activeRows].sort((a, b) => {
-      const av = col.value(a);
-      const bv = col.value(b);
-      // Numeric sort for price column
-      if (sortCol === "Renewal Price") {
+      // Numeric sort for price and date columns
+      if (sortCol === "Renewal Price" || col.sortKey) {
+        const av = col.sortKey ? col.sortKey(a) : col.value(a);
+        const bv = col.sortKey ? col.sortKey(b) : col.value(b);
         const an = parseFloat(av.replace(/[^0-9.]/g, ""));
         const bn = parseFloat(bv.replace(/[^0-9.]/g, ""));
         const diff = (isNaN(an) ? -Infinity : an) - (isNaN(bn) ? -Infinity : bn);
         return sortDir === "asc" ? diff : -diff;
       }
+      const av = col.value(a);
+      const bv = col.value(b);
       const cmp = av.localeCompare(bv);
       return sortDir === "asc" ? cmp : -cmp;
     });
@@ -1276,6 +1354,76 @@ export default function DashboardPage() {
                             <td style={S({ padding: "11px 20px", fontWeight: 700 })}>Total</td>
                             <td style={S({ padding: "11px 20px", textAlign: "right", fontWeight: 700 })}>{total.toLocaleString()}</td>
                             <td style={S({ padding: "11px 20px", textAlign: "right", fontWeight: 700 })}>100%</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Weekly breakdown */}
+            {(() => {
+              const weeks = getWeeksInRange(range.start, range.end);
+              // bucket eligible by expiration week
+              const eligByWeek = new Map<string, number>();
+              for (const c of eligBreakdownContacts) {
+                const ws = getWeekStartStr(c.properties.expiration_date);
+                if (ws) eligByWeek.set(ws, (eligByWeek.get(ws) ?? 0) + 1);
+              }
+              // bucket actuals by latest_renewal_date week
+              const actualByWeek = new Map<string, number>();
+              for (const c of eligActualContacts) {
+                const ws = getWeekStartStr(c.properties.latest_renewal_date);
+                if (ws) actualByWeek.set(ws, (actualByWeek.get(ws) ?? 0) + 1);
+              }
+              const isLoading = eligBreakdownLoading || eligActualLoading;
+              const totalElig = weeks.reduce((s, w) => s + (eligByWeek.get(w.ws) ?? 0), 0);
+              const totalActual = weeks.reduce((s, w) => s + (actualByWeek.get(w.ws) ?? 0), 0);
+
+              return (
+                <div style={S({ background: "#fff", border: "1px solid #e6e6e3", borderRadius: "12px", overflow: "hidden", marginTop: "16px" })}>
+                  <div style={S({ padding: "16px 20px", borderBottom: "1px solid #e6e6e3", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" })}>
+                    <span style={S({ fontSize: "14px", fontWeight: 600 })}>Weekly Breakdown</span>
+                    {isLoading && <span style={S({ fontSize: "12px", color: "#999" })}>Loading…</span>}
+                  </div>
+                  <div style={S({ overflowX: "auto" })}>
+                    <table style={S({ width: "100%", borderCollapse: "collapse", fontSize: "13px" })}>
+                      <thead>
+                        <tr style={S({ background: "#f7f7f5" })}>
+                          <th style={S({ padding: "11px 20px", textAlign: "left",  fontWeight: 600, fontSize: "12px", color: "#666", borderBottom: "1px solid #e6e6e3" })}>Week</th>
+                          <th style={S({ padding: "11px 20px", textAlign: "right", fontWeight: 600, fontSize: "12px", color: "#666", borderBottom: "1px solid #e6e6e3" })}>Eligible Expiring</th>
+                          <th style={S({ padding: "11px 20px", textAlign: "right", fontWeight: 600, fontSize: "12px", color: "#666", borderBottom: "1px solid #e6e6e3" })}>Actual Renewals</th>
+                          <th style={S({ padding: "11px 20px", textAlign: "right", fontWeight: 600, fontSize: "12px", color: "#666", borderBottom: "1px solid #e6e6e3" })}>Renewal Rate</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {weeks.length === 0 && (
+                          <tr><td colSpan={4} style={S({ padding: "32px", textAlign: "center", color: "#999" })}>No weeks in this period</td></tr>
+                        )}
+                        {weeks.map(({ ws, label }, i) => {
+                          const elig = eligByWeek.get(ws) ?? 0;
+                          const actual = actualByWeek.get(ws) ?? 0;
+                          const rate = (elig + actual) > 0 ? ((actual / (elig + actual)) * 100).toFixed(1) + "%" : "—";
+                          const hasData = elig > 0 || actual > 0;
+                          return (
+                            <tr key={ws} style={S({ borderBottom: "1px solid #f0f0ee", background: i % 2 === 0 ? "#fff" : "#fafaf9", opacity: hasData ? 1 : 0.45 })}>
+                              <td style={S({ padding: "11px 20px", color: "#1a1a1a", whiteSpace: "nowrap" })}>{label}</td>
+                              <td style={S({ padding: "11px 20px", textAlign: "right", color: "#1a1a1a" })}>{elig > 0 ? elig.toLocaleString() : "—"}</td>
+                              <td style={S({ padding: "11px 20px", textAlign: "right", color: actual > 0 ? "#16a34a" : "#1a1a1a" })}>{actual > 0 ? actual.toLocaleString() : "—"}</td>
+                              <td style={S({ padding: "11px 20px", textAlign: "right", color: "#666" })}>{rate}</td>
+                            </tr>
+                          );
+                        })}
+                        {weeks.length > 0 && !isLoading && (
+                          <tr style={S({ borderTop: "2px solid #e6e6e3", background: "#f7f7f5" })}>
+                            <td style={S({ padding: "11px 20px", fontWeight: 700 })}>Total</td>
+                            <td style={S({ padding: "11px 20px", textAlign: "right", fontWeight: 700 })}>{totalElig > 0 ? totalElig.toLocaleString() : "—"}</td>
+                            <td style={S({ padding: "11px 20px", textAlign: "right", fontWeight: 700, color: totalActual > 0 ? "#16a34a" : "#1a1a1a" })}>{totalActual > 0 ? totalActual.toLocaleString() : "—"}</td>
+                            <td style={S({ padding: "11px 20px", textAlign: "right", fontWeight: 700, color: "#666" })}>
+                              {(totalElig + totalActual) > 0 ? ((totalActual / (totalElig + totalActual)) * 100).toFixed(1) + "%" : "—"}
+                            </td>
                           </tr>
                         )}
                       </tbody>
