@@ -20,163 +20,114 @@ function toEpochMs(dateStr: string, endOfDay = false): string {
   return String(new Date(`${dateStr}${suffix}`).getTime());
 }
 
-// ─── Snapshot views (no period) ──────────────────────────────────────────────
+const ACTIVE: HubSpotFilter = { propertyName: "active_boardroom_member", operator: "EQ", value: "true" };
 
-/** Current Members (All) — status Active OR grace */
-export function currentAllFilters(): HubSpotFilter[][] {
-  return [
-    [{ propertyName: "membership_status", operator: "EQ", value: "Active" }],
-    [{ propertyName: "membership_status", operator: "EQ", value: "grace" }],
-  ];
+// Returns a filter that matches nothing (for views where no HubSpot property exists yet)
+function impossibleFilter(): HubSpotFilter[] {
+  return [{ propertyName: "temp_smb_boardroom_date_joined", operator: "GTE", value: "9999999999999" }];
 }
 
-/** Current Primary — Active + primary type */
+// ─── Snapshot views ─────────────────────────────────────────────────────────
+
+export function currentAllFilters(): HubSpotFilter[] {
+  return [ACTIVE];
+}
+
 export function primaryBaseFilters(): HubSpotFilter[] {
   return [
-    { propertyName: "membership_status", operator: "EQ", value: "Active" },
-    { propertyName: "membership_type",   operator: "EQ", value: "primary" },
+    ACTIVE,
+    { propertyName: "spouse__partner", operator: "EQ", value: "0" },
   ];
 }
 
-/** Current Secondary — Active + spouse OR Active + business partner */
-export function currentSecondaryFilters(): HubSpotFilter[][] {
+export function currentSecondaryFilters(): HubSpotFilter[] {
   return [
-    [
-      { propertyName: "membership_status", operator: "EQ", value: "Active" },
-      { propertyName: "membership_type",   operator: "EQ", value: "secondary - spouse" },
-    ],
-    [
-      { propertyName: "membership_status", operator: "EQ", value: "Active" },
-      { propertyName: "membership_type",   operator: "EQ", value: "secondary - business partner" },
-    ],
+    ACTIVE,
+    { propertyName: "spouse__partner", operator: "GT", value: "0" },
   ];
 }
 
-// ─── Period views ─────────────────────────────────────────────────────────────
+// ─── Period views ────────────────────────────────────────────────────────────
 
-/** New Joiners — membership_create_date in period */
 export function newJoinersFilters(start: string, end: string): HubSpotFilter[] {
   return [
-    { propertyName: "membership_create_date", operator: "GTE", value: toEpochMs(start) },
-    { propertyName: "membership_create_date", operator: "LTE", value: toEpochMs(end, true) },
+    ACTIVE,
+    { propertyName: "temp_smb_boardroom_date_joined", operator: "GTE", value: toEpochMs(start) },
+    { propertyName: "temp_smb_boardroom_date_joined", operator: "LTE", value: toEpochMs(end, true) },
   ];
 }
 
-/** New Primary Joiners — membership_create_date in period, primary type */
 export function newJoinersPrimaryFilters(start: string, end: string): HubSpotFilter[] {
   return [
-    { propertyName: "membership_type",        operator: "EQ",  value: "primary" },
-    { propertyName: "membership_create_date", operator: "GTE", value: toEpochMs(start) },
-    { propertyName: "membership_create_date", operator: "LTE", value: toEpochMs(end, true) },
+    ACTIVE,
+    { propertyName: "spouse__partner",                operator: "EQ",  value: "0" },
+    { propertyName: "temp_smb_boardroom_date_joined", operator: "GTE", value: toEpochMs(start) },
+    { propertyName: "temp_smb_boardroom_date_joined", operator: "LTE", value: toEpochMs(end, true) },
   ];
 }
 
-/** New Secondary Joiners — membership_create_date in period, secondary type */
-export function newJoinersSecondaryFilters(start: string, end: string): HubSpotFilter[][] {
+export function newJoinersSecondaryFilters(start: string, end: string): HubSpotFilter[] {
   return [
-    [
-      { propertyName: "membership_type",        operator: "EQ",  value: "secondary - spouse" },
-      { propertyName: "membership_create_date", operator: "GTE", value: toEpochMs(start) },
-      { propertyName: "membership_create_date", operator: "LTE", value: toEpochMs(end, true) },
-    ],
-    [
-      { propertyName: "membership_type",        operator: "EQ",  value: "secondary - business partner" },
-      { propertyName: "membership_create_date", operator: "GTE", value: toEpochMs(start) },
-      { propertyName: "membership_create_date", operator: "LTE", value: toEpochMs(end, true) },
-    ],
+    ACTIVE,
+    { propertyName: "spouse__partner",                operator: "GT",  value: "0" },
+    { propertyName: "temp_smb_boardroom_date_joined", operator: "GTE", value: toEpochMs(start) },
+    { propertyName: "temp_smb_boardroom_date_joined", operator: "LTE", value: toEpochMs(end, true) },
   ];
 }
 
-/** Churned — Inactive (all membership types) */
-export function churnedFilters(start: string, end: string): HubSpotFilter[] {
-  // NOTE: Tokyo may not have a revocation-date property — this uses membership_create_date as fallback.
-  // Update the date property name once the correct "inactive since" field is identified.
-  return [
-    { propertyName: "membership_status", operator: "EQ", value: "Inactive" },
-  ];
+/** Churned — temp_smbb_access_revoked = true (period ignored; no revocation date property) */
+export function churnedFilters(_start: string, _end: string): HubSpotFilter[] {
+  return [{ propertyName: "temp_smbb_access_revoked", operator: "EQ", value: "true" }];
 }
 
-/** Renewals Actual — actual_renewal_date in period */
-export function renewalActualFilters(start: string, end: string): HubSpotFilter[] {
-  return [
-    { propertyName: "actual_renewal_date", operator: "GTE", value: toEpochMs(start) },
-    { propertyName: "actual_renewal_date", operator: "LTE", value: toEpochMs(end, true) },
-  ];
+/** Actual Renewals — no renewal date property found in portal; always returns 0 */
+export function renewalActualFilters(_start: string, _end: string): HubSpotFilter[] {
+  return impossibleFilter();
 }
 
-/** Renewals Actual multi-filters — same as single group for Tokyo (no CC Renewal 2026 equivalent). */
 export function renewalActualMultiFilters(start: string, end: string): HubSpotFilter[][] {
   return [renewalActualFilters(start, end)];
 }
 
-/**
- * Eligible Renewals — PAST periods.
- * expected_renewal_date in period, Inactive members included (they were eligible but didn't renew).
- */
+/** Eligible Renewals (past) — expiration date in period (any status) */
 export function eligibleRenewalFilters(start: string, end: string): HubSpotFilter[] {
   return [
-    { propertyName: "membership_type",       operator: "EQ",  value: "primary" },
-    { propertyName: "expected_renewal_date", operator: "GTE", value: toEpochMs(start) },
-    { propertyName: "expected_renewal_date", operator: "LTE", value: toEpochMs(end, true) },
+    { propertyName: "temp_smb_boardroom_expiration_date", operator: "GTE", value: toEpochMs(start) },
+    { propertyName: "temp_smb_boardroom_expiration_date", operator: "LTE", value: toEpochMs(end, true) },
   ];
 }
 
-/**
- * Eligible Renewals — CURRENT & FUTURE periods.
- * expected_renewal_date in period, Active/grace members only.
- */
-export function eligibleRenewalActiveFilters(start: string, end: string): HubSpotFilter[][] {
+/** Eligible Renewals (current/future) — active + expiration date in period */
+export function eligibleRenewalActiveFilters(start: string, end: string): HubSpotFilter[] {
   return [
-    [
-      { propertyName: "membership_status",     operator: "EQ",  value: "Active" },
-      { propertyName: "membership_type",       operator: "EQ",  value: "primary" },
-      { propertyName: "expected_renewal_date", operator: "GTE", value: toEpochMs(start) },
-      { propertyName: "expected_renewal_date", operator: "LTE", value: toEpochMs(end, true) },
-    ],
-    [
-      { propertyName: "membership_status",     operator: "EQ",  value: "grace" },
-      { propertyName: "membership_type",       operator: "EQ",  value: "primary" },
-      { propertyName: "expected_renewal_date", operator: "GTE", value: toEpochMs(start) },
-      { propertyName: "expected_renewal_date", operator: "LTE", value: toEpochMs(end, true) },
-    ],
+    ACTIVE,
+    { propertyName: "temp_smb_boardroom_expiration_date", operator: "GTE", value: toEpochMs(start) },
+    { propertyName: "temp_smb_boardroom_expiration_date", operator: "LTE", value: toEpochMs(end, true) },
   ];
 }
 
-/** Refunded — Inactive - refunded */
-export function refundedFilters(start: string, end: string): HubSpotFilter[] {
-  return [
-    { propertyName: "membership_status",     operator: "EQ",  value: "Inactive - refunded" },
-    { propertyName: "expected_renewal_date", operator: "GTE", value: toEpochMs(start) },
-    { propertyName: "expected_renewal_date", operator: "LTE", value: toEpochMs(end, true) },
-  ];
+/** Refunded — no property found; always returns 0 */
+export function refundedFilters(_start: string, _end: string): HubSpotFilter[] {
+  return impossibleFilter();
 }
 
-/** Has Acquired a Business — owner_circle = true */
+/** Acquired a Business — no property found; always returns 0 */
 export function acquiredBusinessFilters(): HubSpotFilter[][] {
-  return [
-    [
-      { propertyName: "membership_status", operator: "EQ", value: "Active" },
-      { propertyName: "owner_circle",      operator: "EQ", value: "true" },
-    ],
-    [
-      { propertyName: "membership_status", operator: "EQ", value: "Active" },
-      { propertyName: "owner_circle",      operator: "EQ", value: "Yes" },
-    ],
-  ];
+  return [impossibleFilter()];
 }
 
-// ─── Properties to fetch ─────────────────────────────────────────────────────
+// ─── Properties to fetch ────────────────────────────────────────────────────
 
 export const CONTACT_PROPERTIES = [
   "firstname",
   "lastname",
   "email",
-  "membership_status",
-  "membership_type",
-  "membership_create_date",
-  "actual_renewal_date",
-  "expected_renewal_date",
+  "active_boardroom_member",
+  "active_academy_member",
+  "spouse__partner",
+  "temp_smb_boardroom_date_joined",
+  "temp_smb_boardroom_expiration_date",
+  "temp_smbb_access_revoked",
+  "temp_smbb_council_status",
   "lastmodifieddate",
-  "community_renewal_price",
-  "owner_circle",
 ];

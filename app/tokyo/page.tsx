@@ -334,53 +334,20 @@ function dateSort(prop: string): (c: Contact) => string {
 function tableColumns(view: ViewKey): TableCol[] {
   if (view === "churned") {
     return [
-      { label: "Name",            value: fmtName },
-      { label: "Email",           value: (c) => c.properties.email ?? "—" },
-      { label: "Membership Type", value: (c) => c.properties.membership_type ?? "—" },
-      { label: "Status",          value: (c) => c.properties.membership_status ?? "—" },
-      { label: "Date Joined",     value: (c) => fmtDate(c.properties.membership_create_date), sortKey: dateSort("membership_create_date") },
-      { label: "Renewal Price",   value: (c) => fmtPrice(c.properties.community_renewal_price) },
-    ];
-  }
-  if (view === "refunded") {
-    return [
-      { label: "Name",              value: fmtName },
-      { label: "Email",             value: (c) => c.properties.email ?? "—" },
-      { label: "Membership Type",   value: (c) => c.properties.membership_type ?? "—" },
-      { label: "Status",            value: (c) => c.properties.membership_status ?? "—" },
-      { label: "Date Joined",       value: (c) => fmtDate(c.properties.membership_create_date), sortKey: dateSort("membership_create_date") },
-      { label: "Expected Renewal",  value: (c) => fmtDate(c.properties.expected_renewal_date),  sortKey: dateSort("expected_renewal_date") },
-    ];
-  }
-  if (view === "acquired") {
-    return [
-      { label: "Name",            value: fmtName },
-      { label: "Email",           value: (c) => c.properties.email ?? "—" },
-      { label: "Membership Type", value: (c) => c.properties.membership_type ?? "—" },
-      { label: "Owner Circle",    value: (c) => c.properties.owner_circle ?? "—" },
-      { label: "Renewal Price",   value: (c) => fmtPrice(c.properties.community_renewal_price) },
-      { label: "Date Joined",     value: (c) => fmtDate(c.properties.membership_create_date), sortKey: dateSort("membership_create_date") },
-    ];
-  }
-  if (view === "secondary") {
-    return [
-      { label: "Name",            value: fmtName },
-      { label: "Email",           value: (c) => c.properties.email ?? "—" },
-      { label: "Membership Type", value: (c) => c.properties.membership_type ?? "—" },
-      { label: "Status",          value: (c) => c.properties.membership_status ?? "—" },
-      { label: "Date Joined",     value: (c) => fmtDate(c.properties.membership_create_date), sortKey: dateSort("membership_create_date") },
-      { label: "Expected Renewal",value: (c) => fmtDate(c.properties.expected_renewal_date),  sortKey: dateSort("expected_renewal_date") },
+      { label: "Name",       value: fmtName },
+      { label: "Email",      value: (c) => c.properties.email ?? "—" },
+      { label: "Date Joined",value: (c) => fmtDate(c.properties.temp_smb_boardroom_date_joined), sortKey: dateSort("temp_smb_boardroom_date_joined") },
+      { label: "Expiration", value: (c) => fmtDate(c.properties.temp_smb_boardroom_expiration_date), sortKey: dateSort("temp_smb_boardroom_expiration_date") },
+      { label: "Revoked",    value: (c) => c.properties.temp_smbb_access_revoked ?? "—" },
     ];
   }
   return [
-    { label: "Name",             value: fmtName },
-    { label: "Email",            value: (c) => c.properties.email ?? "—" },
-    { label: "Membership Type",  value: (c) => c.properties.membership_type ?? "—" },
-    { label: "Status",           value: (c) => c.properties.membership_status ?? "—" },
-    { label: "Renewal Price",    value: (c) => fmtPrice(c.properties.community_renewal_price) },
-    { label: "Date Joined",      value: (c) => fmtDate(c.properties.membership_create_date),  sortKey: dateSort("membership_create_date") },
-    { label: "Last Renewal",     value: (c) => fmtDate(c.properties.actual_renewal_date),     sortKey: dateSort("actual_renewal_date") },
-    { label: "Expected Renewal", value: (c) => fmtDate(c.properties.expected_renewal_date),   sortKey: dateSort("expected_renewal_date") },
+    { label: "Name",       value: fmtName },
+    { label: "Email",      value: (c) => c.properties.email ?? "—" },
+    { label: "Active",     value: (c) => c.properties.active_boardroom_member ?? "—" },
+    { label: "Spouse/Partner", value: (c) => c.properties.spouse__partner ?? "—" },
+    { label: "Date Joined",value: (c) => fmtDate(c.properties.temp_smb_boardroom_date_joined), sortKey: dateSort("temp_smb_boardroom_date_joined") },
+    { label: "Expiration", value: (c) => fmtDate(c.properties.temp_smb_boardroom_expiration_date), sortKey: dateSort("temp_smb_boardroom_expiration_date") },
   ];
 }
 
@@ -882,10 +849,10 @@ export default function DashboardPage() {
               Membership Snapshot · All Time
             </p>
             <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "24px" })}>
-              <StatCard title="Current Members" subtitle="membership_status: Active or grace" badge="All" badgeColor="green" count={state.counts.current} isLoading={loading.current} active={state.activeView === "current"} onClick={() => setView("current")} />
+              <StatCard title="Current Members" subtitle="active_boardroom_member = true" badge="All" badgeColor="green" count={state.counts.current} isLoading={loading.current} active={state.activeView === "current"} onClick={() => setView("current")} />
               <StatCard title="Current Primary" subtitle="Primary members only" badge="Primary" badgeColor="cyan" count={state.counts.primary} isLoading={loading.primary} active={state.activeView === "primary"} onClick={() => setView("primary")} />
               <StatCard title="Current Secondary" subtitle="Under a primary member" badge="Secondary" badgeColor="purple" count={state.counts.secondary} isLoading={loading.secondary} active={state.activeView === "secondary"} onClick={() => setView("secondary")} />
-              <StatCard title="Has Acquired a Business" subtitle="owner_circle = true" badge="Acquired" badgeColor="orange" count={state.counts.acquired} isLoading={loading.acquired} active={state.activeView === "acquired"} onClick={() => setView("acquired")} />
+              <StatCard title="Has Acquired a Business" subtitle="No property configured" badge="Acquired" badgeColor="orange" count={state.counts.acquired} isLoading={loading.acquired} active={state.activeView === "acquired"} onClick={() => setView("acquired")} />
             </div>
 
             <PeriodBar state={state} customTempStart={customTempStart} customTempEnd={customTempEnd}
@@ -923,7 +890,7 @@ export default function DashboardPage() {
               Membership Snapshot · All Time
             </p>
             <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "28px" })}>
-              <StatCard title="Current Members" subtitle="membership_status: Active or grace" badge="All" badgeColor="green" count={state.counts.current} isLoading={loading.current} active={false} clickable={false} />
+              <StatCard title="Current Members" subtitle="active_boardroom_member = true" badge="All" badgeColor="green" count={state.counts.current} isLoading={loading.current} active={false} clickable={false} />
               <StatCard title="Current Primary" subtitle="Primary members only" badge="Primary" badgeColor="cyan" count={state.counts.primary} isLoading={loading.primary} active={false} clickable={false} />
               <StatCard title="Current Secondary" subtitle="Under a primary member" badge="Secondary" badgeColor="purple" count={state.counts.secondary} isLoading={loading.secondary} active={false} clickable={false} />
             </div>
