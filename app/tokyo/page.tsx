@@ -1106,7 +1106,7 @@ export default function DashboardPage() {
                   ["expected_renewal_date", "falls within the selected period"],
                 ],
               },
-            ].map(({ title, rows, note }) => (
+            ].map(({ title, rows, note }: { title: string; rows: string[][]; note?: string }) => (
               <div key={title} style={S({ marginBottom: "24px" })}>
                 <h3 style={S({ fontSize: "14px", fontWeight: 700, margin: "0 0 8px" })}>{title}</h3>
                 <div style={S({ background: "#fff", border: "1px solid #e6e6e3", borderRadius: "10px", overflow: "hidden" })}>
