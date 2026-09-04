@@ -1178,59 +1178,124 @@ export default function DashboardPage() {
             </div>
 
             {/* ── Period metrics ────────────────────────────────────────────────── */}
-            <h2 style={S({ fontSize: "16px", fontWeight: 700, marginBottom: "12px" })}>Period Metrics</h2>
-            <div style={S({ background: "#fff", border: "1px solid #e6e6e3", borderRadius: "12px", overflow: "hidden", marginBottom: "32px" })}>
-              <table style={S({ width: "100%", borderCollapse: "collapse", fontSize: "13px" })}>
-                <thead>
-                  <tr style={S({ background: "#f7f7f5" })}>
-                    <th style={S({ padding: "10px 16px", textAlign: "left", fontWeight: 600, fontSize: "12px", color: "#666", borderBottom: "1px solid #e6e6e3" })}>Metric</th>
-                    <th style={S({ padding: "10px 16px", textAlign: "left", fontWeight: 600, fontSize: "12px", color: "#666", borderBottom: "1px solid #e6e6e3" })}>Definition</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    ["New Joiners (Total)",          "Active or Grace AND start_date_v2 falls in the period"],
-                    ["New Joiners — Primary",        "New Joiners AND membership_type = Primary"],
-                    ["New Joiners — Spouse",         "New Joiners AND membership_type = Secondary - Spouse"],
-                    ["New Joiners — Business Partner","New Joiners AND membership_type = Secondary - Business Partner"],
-                    ["Business Acquisitions",        "Active or Grace AND owners_circle = true — scoped to the selected period (Academy only)"],
-                    ["Churned",                      "status = Expired, Inactive – Delinquent, or Inactive – Refunded AND membership_inactive_date falls in the period"],
-                    ["Expected Renewals",            "membership_type = Primary OR Business Partner AND expected_renewal_date falls in the period (past periods: any status; current/future: Active or Grace only)"],
-                    ["Actual Renewals",              "actual_renewal_date falls in the period"],
-                    ["Refunds",                      "status = Inactive – Refunded AND expected_renewal_date falls in the period"],
-                    ["Cancellations",                "access_revoked = true AND revocation_date falls in the period"],
-                  ].map(([col, def], i) => (
-                    <tr key={col} style={S({ borderBottom: "1px solid #f0f0ee", background: i % 2 === 0 ? "#fff" : "#fafaf9" })}>
-                      <td style={S({ padding: "10px 16px", fontWeight: 600, whiteSpace: "nowrap", color: "#1a1a1a", verticalAlign: "top" })}>{col}</td>
-                      <td style={S({ padding: "10px 16px", color: "#444", lineHeight: 1.5 })}>{def}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <h2 style={S({ fontSize: "16px", fontWeight: 700, marginBottom: "16px" })}>Period Metrics — Filter Rules</h2>
 
-            {/* Eligible Renewals special note */}
+            {([
+              {
+                title: "New Joiners — Total",
+                rows: [
+                  ["status",        "Active OR Grace"],
+                  ["start_date_v2", "≥ period start AND ≤ period end"],
+                ],
+              },
+              {
+                title: "New Joiners — Primary",
+                rows: [
+                  ["status",          "Active OR Grace"],
+                  ["membership_type", "Primary"],
+                  ["start_date_v2",   "≥ period start AND ≤ period end"],
+                ],
+              },
+              {
+                title: "New Joiners — Spouse",
+                rows: [
+                  ["status",          "Active OR Grace"],
+                  ["membership_type", "Secondary - Spouse"],
+                  ["start_date_v2",   "≥ period start AND ≤ period end"],
+                ],
+              },
+              {
+                title: "New Joiners — Business Partner",
+                rows: [
+                  ["status",          "Active OR Grace"],
+                  ["membership_type", "Secondary - Business Partner"],
+                  ["start_date_v2",   "≥ period start AND ≤ period end"],
+                ],
+              },
+              {
+                title: "Business Acquisitions (Academy only)",
+                rows: [
+                  ["status",        "Active OR Grace"],
+                  ["owners_circle", "true"],
+                  ["type",          "Academy"],
+                ],
+                note: "This metric is shared between the snapshot cards and the period section — the count reflects all active Business Acquisitions, not a date-scoped subset.",
+              },
+              {
+                title: "Churned",
+                rows: [
+                  ["status",                  "Expired OR Inactive – Delinquent OR Inactive – Refunded"],
+                  ["membership_inactive_date", "≥ period start AND ≤ period end"],
+                ],
+              },
+              {
+                title: "Actual Renewals",
+                rows: [
+                  ["actual_renewal_date", "≥ period start AND ≤ period end"],
+                ],
+              },
+              {
+                title: "Refunds",
+                rows: [
+                  ["status",               "Inactive – Refunded"],
+                  ["expected_renewal_date", "≥ period start AND ≤ period end"],
+                ],
+                note: "membership_inactive_date is not used here because it reflects the scheduled expiry date rather than when the refund was processed. expected_renewal_date anchors the refund to the renewal cycle.",
+              },
+              {
+                title: "Cancellations",
+                rows: [
+                  ["access_revoked",  "true"],
+                  ["revocation_date", "≥ period start AND ≤ period end"],
+                ],
+              },
+            ] as { title: string; rows: string[][]; note?: string }[]).map(({ title, rows, note }) => (
+              <div key={title} style={S({ marginBottom: "20px" })}>
+                <h3 style={S({ fontSize: "13px", fontWeight: 700, margin: "0 0 6px", color: "#1a1a1a" })}>{title}</h3>
+                <div style={S({ background: "#fff", border: "1px solid #e6e6e3", borderRadius: "10px", overflow: "hidden" })}>
+                  <table style={S({ width: "100%", borderCollapse: "collapse", fontSize: "13px" })}>
+                    <thead>
+                      <tr style={S({ background: "#f7f7f5" })}>
+                        <th style={S({ padding: "8px 16px", textAlign: "left", fontWeight: 600, fontSize: "11px", color: "#666", borderBottom: "1px solid #e6e6e3", width: "220px" })}>Property</th>
+                        <th style={S({ padding: "8px 16px", textAlign: "left", fontWeight: 600, fontSize: "11px", color: "#666", borderBottom: "1px solid #e6e6e3" })}>Condition</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map(([prop, cond], i) => (
+                        <tr key={i} style={S({ borderBottom: i < rows.length - 1 ? "1px solid #f0f0ee" : "none" })}>
+                          <td style={S({ padding: "8px 16px", fontWeight: 500, fontFamily: "monospace", fontSize: "12px", color: "#1a1a1a", whiteSpace: "nowrap" })}>{prop}</td>
+                          <td style={S({ padding: "8px 16px", color: "#444", fontSize: "13px" })}>{cond}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {note && <p style={S({ margin: "6px 0 0", fontSize: "12px", color: "#b45309", background: "#fef9c3", padding: "6px 10px", borderRadius: "6px", lineHeight: 1.5 })}>{note}</p>}
+              </div>
+            ))}
+
+            {/* Expected Renewals special note */}
             <div style={S({ marginBottom: "32px" })}>
-              <h3 style={S({ fontSize: "14px", fontWeight: 700, margin: "0 0 8px" })}>Expected Renewals — Past vs. Current Periods</h3>
+              <h3 style={S({ fontSize: "13px", fontWeight: 700, margin: "0 0 6px", color: "#1a1a1a" })}>Expected Renewals</h3>
               <div style={S({ background: "#fff", border: "1px solid #e6e6e3", borderRadius: "10px", overflow: "hidden", marginBottom: "8px" })}>
                 <table style={S({ width: "100%", borderCollapse: "collapse", fontSize: "13px" })}>
                   <thead>
                     <tr style={S({ background: "#f7f7f5" })}>
-                      <th style={S({ padding: "9px 16px", textAlign: "left", fontWeight: 600, fontSize: "12px", color: "#666", borderBottom: "1px solid #e6e6e3" })}>Condition</th>
-                      <th style={S({ padding: "9px 16px", textAlign: "left", fontWeight: 600, fontSize: "12px", color: "#666", borderBottom: "1px solid #e6e6e3" })}>Past Periods</th>
-                      <th style={S({ padding: "9px 16px", textAlign: "left", fontWeight: 600, fontSize: "12px", color: "#666", borderBottom: "1px solid #e6e6e3" })}>Current & Future Periods</th>
+                      <th style={S({ padding: "8px 16px", textAlign: "left", fontWeight: 600, fontSize: "11px", color: "#666", borderBottom: "1px solid #e6e6e3", width: "220px" })}>Property</th>
+                      <th style={S({ padding: "8px 16px", textAlign: "left", fontWeight: 600, fontSize: "11px", color: "#666", borderBottom: "1px solid #e6e6e3" })}>Past Periods</th>
+                      <th style={S({ padding: "8px 16px", textAlign: "left", fontWeight: 600, fontSize: "11px", color: "#666", borderBottom: "1px solid #e6e6e3" })}>Current & Future Periods</th>
                     </tr>
                   </thead>
                   <tbody>
                     {[
-                      ["membership_type",       "Primary", "Primary"],
+                      ["membership_type",       "Primary OR Business Partner", "Primary OR Business Partner"],
                       ["status",                "any (Active, Grace, Inactive, etc.)", "Active or Grace only"],
-                      ["expected_renewal_date", "falls within the period", "falls within the period"],
+                      ["expected_renewal_date", "≥ period start AND ≤ period end", "≥ period start AND ≤ period end"],
                     ].map(([condition, past, future], i, arr) => (
                       <tr key={i} style={S({ borderBottom: i < arr.length - 1 ? "1px solid #f0f0ee" : "none" })}>
-                        <td style={S({ padding: "9px 16px", color: "#666", whiteSpace: "nowrap" })}>{condition}</td>
-                        <td style={S({ padding: "9px 16px", fontWeight: 500, fontFamily: "monospace", fontSize: "12px", color: "#1a1a1a" })}>{past}</td>
-                        <td style={S({ padding: "9px 16px", fontWeight: 500, fontFamily: "monospace", fontSize: "12px", color: "#1a1a1a" })}>{future}</td>
+                        <td style={S({ padding: "8px 16px", fontWeight: 500, fontFamily: "monospace", fontSize: "12px", color: "#1a1a1a", whiteSpace: "nowrap" })}>{condition}</td>
+                        <td style={S({ padding: "8px 16px", color: "#444", fontSize: "13px" })}>{past}</td>
+                        <td style={S({ padding: "8px 16px", color: "#444", fontSize: "13px" })}>{future}</td>
                       </tr>
                     ))}
                   </tbody>
