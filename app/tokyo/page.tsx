@@ -14,6 +14,7 @@ import {
   eligibleRenewalActiveFilters,
   refundedFilters,
   acquiredBusinessFilters,
+  withType,
   HubSpotFilter,
   CONTACT_PROPERTIES,
 } from "@/lib/tokyo-filters";
@@ -110,13 +111,13 @@ const CACHE_TTL = 30_000;
 // Past months never change, so we store them indefinitely across sessions.
 type StoredRowCounts = Pick<ReportRow, "newPrimary" | "newSecondary" | "churned" | "refunded" | "actual" | "eligible">;
 
-function lsKey(start: string, end: string): string {
-  return `tokyo_report_${start}_${end}`;
+function lsKey(start: string, end: string, type: string): string {
+  return `tokyo_report_${type}_${start}_${end}`;
 }
 
-function getStoredPeriod(start: string, end: string): StoredRowCounts | null {
+function getStoredPeriod(start: string, end: string, type: string): StoredRowCounts | null {
   try {
-    const raw = localStorage.getItem(lsKey(start, end));
+    const raw = localStorage.getItem(lsKey(start, end, type));
     if (!raw) return null;
     return JSON.parse(raw) as StoredRowCounts;
   } catch {
@@ -124,9 +125,9 @@ function getStoredPeriod(start: string, end: string): StoredRowCounts | null {
   }
 }
 
-function storePeriod(start: string, end: string, data: StoredRowCounts): void {
+function storePeriod(start: string, end: string, type: string, data: StoredRowCounts): void {
   try {
-    localStorage.setItem(lsKey(start, end), JSON.stringify(data));
+    localStorage.setItem(lsKey(start, end, type), JSON.stringify(data));
   } catch {
     // localStorage full or unavailable — silently skip
   }
@@ -262,20 +263,22 @@ function StatCard({ title, subtitle, badge, badgeColor, count, displayValue, isL
   );
 }
 
-function viewFilters(view: ViewKey, start: string, end: string): HubSpotFilter[] | HubSpotFilter[][] {
+function viewFilters(view: ViewKey, start: string, end: string, productType: string | null): HubSpotFilter[][] {
   const today = new Date().toISOString().slice(0, 10);
   const isPast = end < today;
+  let filters: HubSpotFilter[] | HubSpotFilter[][];
   switch (view) {
-    case "current":   return currentAllFilters();
-    case "primary":   return primaryBaseFilters();
-    case "secondary": return currentSecondaryFilters();
-    case "new":       return newJoinersFilters(start, end);
-    case "churned":   return churnedFilters(start, end);
-    case "renewal":   return renewalActualFilters(start, end);
-    case "eligible":  return isPast ? eligibleRenewalFilters(start, end) : eligibleRenewalActiveFilters(start, end);
-    case "refunded":  return refundedFilters(start, end);
-    case "acquired":  return acquiredBusinessFilters();
+    case "current":   filters = currentAllFilters(); break;
+    case "primary":   filters = primaryBaseFilters(); break;
+    case "secondary": filters = currentSecondaryFilters(); break;
+    case "new":       filters = newJoinersFilters(start, end); break;
+    case "churned":   filters = churnedFilters(start, end); break;
+    case "renewal":   filters = renewalActualFilters(start, end); break;
+    case "eligible":  filters = isPast ? eligibleRenewalFilters(start, end) : eligibleRenewalActiveFilters(start, end); break;
+    case "refunded":  filters = refundedFilters(start, end); break;
+    case "acquired":  filters = acquiredBusinessFilters(); break;
   }
+  return productType ? withType(filters, productType) : (Array.isArray(filters[0]) ? filters as HubSpotFilter[][] : [filters as HubSpotFilter[]]);
 }
 
 function fmtPrice(v: string | null | undefined): string {
@@ -455,6 +458,7 @@ export default function DashboardPage() {
   const [customTempStart, setCustomTempStart] = useState(d30start);
   const [customTempEnd, setCustomTempEnd] = useState(d30end);
   const [downloadProgress, setDownloadProgress] = useState<string | null>(null);
+  const [productType, setProductType] = useState<string>("Academy");
 
   // ── Summary Report state ──────────────────────────────────────────────────
   const [reportGranularity, setReportGranularity] = useState<ReportGranularity>("monthly");
@@ -486,13 +490,13 @@ export default function DashboardPage() {
       ? ((state.counts.renewal / (state.counts.eligible + state.counts.renewal)) * 100).toFixed(1) + "%"
       : "—";
 
-  const loadSnapshotViews = useCallback(async () => {
+  const loadSnapshotViews = useCallback(async (pt: string) => {
     setLoading((l) => ({ ...l, current: true, primary: true, secondary: true, acquired: true }));
     const [all, prim, sec, acq] = await Promise.allSettled([
-      searchContacts(currentAllFilters()),
-      searchContacts(primaryBaseFilters()),
-      searchContacts(currentSecondaryFilters()),
-      searchContacts(acquiredBusinessFilters()),
+      searchContacts(withType(currentAllFilters(), pt)),
+      searchContacts(withType(primaryBaseFilters(), pt)),
+      searchContacts(withType(currentSecondaryFilters(), pt)),
+      searchContacts(withType(acquiredBusinessFilters(), pt)),
     ]);
     setState((s) => {
       const snap = (r: PromiseSettledResult<HubSpotResult>) =>
@@ -508,7 +512,7 @@ export default function DashboardPage() {
     setLoading((l) => ({ ...l, current: false, primary: false, secondary: false, acquired: false }));
   }, []);
 
-  const loadPeriodViews = useCallback(async (start: string, end: string) => {
+  const loadPeriodViews = useCallback(async (start: string, end: string, pt: string) => {
     setLoading((l) => ({ ...l, new: true, churned: true, renewal: true, eligible: true, refunded: true }));
     setState((s) => ({
       ...s,
@@ -521,15 +525,15 @@ export default function DashboardPage() {
 
     const today = new Date().toISOString().slice(0, 10);
     const isPast = end < today;
-    const eligFilters = isPast ? eligibleRenewalFilters(start, end) : eligibleRenewalActiveFilters(start, end);
+    const eligFilters = withType(isPast ? eligibleRenewalFilters(start, end) : eligibleRenewalActiveFilters(start, end), pt);
     const [newJ, churn, renew, elig, refund, newPrim, newSec] = await Promise.allSettled([
-      searchContacts(newJoinersFilters(start, end)),
-      searchContacts(churnedFilters(start, end)),
-      searchContacts(renewalActualFilters(start, end)),
+      searchContacts(withType(newJoinersFilters(start, end), pt)),
+      searchContacts(withType(churnedFilters(start, end), pt)),
+      searchContacts(withType(renewalActualFilters(start, end), pt)),
       searchContacts(eligFilters),
-      searchContacts(refundedFilters(start, end)),
-      searchContacts(newJoinersPrimaryFilters(start, end)),
-      searchContacts(newJoinersSecondaryFilters(start, end)),
+      searchContacts(withType(refundedFilters(start, end), pt)),
+      searchContacts(withType(newJoinersPrimaryFilters(start, end), pt)),
+      searchContacts(withType(newJoinersSecondaryFilters(start, end), pt)),
     ]);
 
     setState((s) => {
@@ -546,36 +550,33 @@ export default function DashboardPage() {
     setLoading((l) => ({ ...l, new: false, churned: false, renewal: false, eligible: false, refunded: false }));
   }, []);
 
-  const loadReport = useCallback(async (granularity: ReportGranularity, year: number) => {
+  const loadReport = useCallback(async (granularity: ReportGranularity, year: number, pt: string) => {
     const periods = generateReportPeriods(granularity, year);
     setReportRows(periods.map((p) => ({ ...p, ...EMPTY_ROW_COUNTS })));
     setReportLoading(true);
 
     const todayISO2 = new Date().toISOString().slice(0, 10);
 
-    // For past periods: serve from localStorage instantly, skip the API call.
-    // For current/future periods: always fetch from API.
-    // Past periods that aren't cached yet are fetched and then stored for future visits.
     for (let i = 0; i < periods.length; i++) {
       const p = periods[i];
       const isPast = p.end < todayISO2;
 
       if (isPast) {
-        const stored = getStoredPeriod(p.start, p.end);
+        const stored = getStoredPeriod(p.start, p.end, pt);
         if (stored) {
           setReportRows((rows) => rows.map((row, j) => j !== i ? row : { ...row, ...stored }));
           continue;
         }
       }
 
-      const eligFilters = isPast ? eligibleRenewalFilters(p.start, p.end) : eligibleRenewalActiveFilters(p.start, p.end);
+      const eligFilters = withType(isPast ? eligibleRenewalFilters(p.start, p.end) : eligibleRenewalActiveFilters(p.start, p.end), pt);
       try {
         const [newPrim, newSec, churn, refund, actual, eligible] = await Promise.all([
-          searchContacts(newJoinersPrimaryFilters(p.start, p.end)),
-          searchContacts(newJoinersSecondaryFilters(p.start, p.end)),
-          searchContacts(churnedFilters(p.start, p.end)),
-          searchContacts(refundedFilters(p.start, p.end)),
-          searchContacts(renewalActualFilters(p.start, p.end)),
+          searchContacts(withType(newJoinersPrimaryFilters(p.start, p.end), pt)),
+          searchContacts(withType(newJoinersSecondaryFilters(p.start, p.end), pt)),
+          searchContacts(withType(churnedFilters(p.start, p.end), pt)),
+          searchContacts(withType(refundedFilters(p.start, p.end), pt)),
+          searchContacts(withType(renewalActualFilters(p.start, p.end), pt)),
           searchContacts(eligFilters),
         ]);
         const counts: StoredRowCounts = {
@@ -587,7 +588,7 @@ export default function DashboardPage() {
           eligible:     eligible.total  ?? eligible.results.length,
         };
         setReportRows((rows) => rows.map((row, j) => j !== i ? row : { ...row, ...counts }));
-        if (isPast) storePeriod(p.start, p.end, counts);
+        if (isPast) storePeriod(p.start, p.end, pt, counts);
       } catch {
         // leave this row as EMPTY_ROW_COUNTS
       }
@@ -596,14 +597,14 @@ export default function DashboardPage() {
     setReportLoading(false);
   }, []);
 
-  const loadEligBreakdown = useCallback(async (start: string, end: string) => {
+  const loadEligBreakdown = useCallback(async (start: string, end: string, pt: string) => {
     setEligBreakdownLoading(true);
     setEligBreakdownContacts([]);
     setEligBreakdownTotal(null);
 
     const today = new Date().toISOString().slice(0, 10);
     const isPast = end < today;
-    const filters = isPast ? eligibleRenewalFilters(start, end) : eligibleRenewalActiveFilters(start, end);
+    const filters = withType(isPast ? eligibleRenewalFilters(start, end) : eligibleRenewalActiveFilters(start, end), pt);
 
     let all: Contact[] = [];
     let after: string | undefined;
@@ -625,14 +626,14 @@ export default function DashboardPage() {
     setEligBreakdownLoading(false);
   }, []);
 
-  const loadEligActualRenewals = useCallback(async (start: string, end: string) => {
+  const loadEligActualRenewals = useCallback(async (start: string, end: string, pt: string) => {
     setEligActualLoading(true);
     setEligActualContacts([]);
     let all: Contact[] = [];
     let after: string | undefined;
     try {
       do {
-        const data = await searchContacts(renewalActualFilters(start, end), after);
+        const data = await searchContacts(withType(renewalActualFilters(start, end), pt), after);
         all = [...all, ...data.results];
         after = data.paging?.next?.after;
         setEligActualContacts([...all]);
@@ -643,27 +644,27 @@ export default function DashboardPage() {
     setEligActualLoading(false);
   }, []);
 
-  useEffect(() => { loadSnapshotViews(); }, [loadSnapshotViews]);
-  useEffect(() => { loadPeriodViews(range.start, range.end); }, // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.period, state.customStart, state.customEnd, state.specificMonth]);
+  useEffect(() => { loadSnapshotViews(productType); }, [loadSnapshotViews, productType]);
+  useEffect(() => { loadPeriodViews(range.start, range.end, productType); }, // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.period, state.customStart, state.customEnd, state.specificMonth, productType]);
   useEffect(() => {
-    if (state.tab === "report") loadReport(reportGranularity, reportYear);
-  }, [state.tab, reportGranularity, reportYear, loadReport]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (state.tab === "report") loadReport(reportGranularity, reportYear, productType);
+  }, [state.tab, reportGranularity, reportYear, loadReport, productType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (state.tab === "renewals") {
-      loadEligBreakdown(range.start, range.end);
-      loadEligActualRenewals(range.start, range.end);
+      loadEligBreakdown(range.start, range.end, productType);
+      loadEligActualRenewals(range.start, range.end, productType);
     }
   }, // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.tab, state.period, state.customStart, state.customEnd, state.specificMonth]);
+    [state.tab, state.period, state.customStart, state.customEnd, state.specificMonth, productType]);
 
   async function loadMore() {
     const view = state.activeView;
     const after = state.offsets[view];
     if (!after || state.loadingMore) return;
     setState((s) => ({ ...s, loadingMore: true }));
-    const data = await searchContacts(viewFilters(view, range.start, range.end), after).catch(() => null);
+    const data = await searchContacts(viewFilters(view, range.start, range.end, productType), after).catch(() => null);
     if (data) {
       setState((s) => ({
         ...s,
@@ -739,7 +740,7 @@ export default function DashboardPage() {
     const allLines: string[] = [headers.map(csvEscape).join(",")];
 
     for (const v of views) {
-      const filters = viewFilters(v.key, range.start, range.end);
+      const filters = viewFilters(v.key, range.start, range.end, productType);
       let after: string | undefined;
       let loaded = 0;
       let total: number | null = null;
@@ -824,7 +825,19 @@ export default function DashboardPage() {
             {state.counts.secondary !== null ? ` · ${state.counts.secondary.toLocaleString()} secondary` : ""}
           </p>
         </div>
-        <div style={S({ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" })}>
+        <div style={S({ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "8px" })}>
+          {/* Product type selector */}
+          <div style={S({ display: "flex", alignItems: "center", gap: "6px" })}>
+            <span style={S({ fontSize: "11px", fontWeight: 600, color: "#666" })}>Product type:</span>
+            {["Academy", "Boardroom", "AcqFound", "SFN", "Bundle"].map((t) => (
+              <button key={t} onClick={() => setProductType(t)} style={S({
+                padding: "4px 10px", borderRadius: "6px", border: "1px solid #e6e6e3",
+                background: productType === t ? "#1a1a1a" : "#fff",
+                color: productType === t ? "#fff" : "#1a1a1a",
+                fontSize: "12px", fontWeight: 500, cursor: "pointer",
+              })}>{t}</button>
+            ))}
+          </div>
           <button onClick={downloadFullReport} disabled={!!downloadProgress} style={S({ background: downloadProgress ? "#666" : "#1a1a1a", color: "#fff", border: "none", borderRadius: "8px", padding: "9px 16px", fontSize: "13px", fontWeight: 600, cursor: downloadProgress ? "not-allowed" : "pointer" })}>
             ⬇ Download Full Report (CSV)
           </button>

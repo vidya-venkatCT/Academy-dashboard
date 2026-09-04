@@ -20,13 +20,24 @@ function toEpochMs(dateStr: string, endOfDay = false): string {
   return String(new Date(`${dateStr}${suffix}`).getTime());
 }
 
-// No type filter — portal 51278247 contains only Tokyo memberships
-// (both "Boardroom" and "Academy" product types are used here)
 const ACTIVE:  HubSpotFilter = { propertyName: "status", operator: "EQ", value: "Active" };
 const GRACE:   HubSpotFilter = { propertyName: "status", operator: "EQ", value: "Grace" };
 const PRIMARY: HubSpotFilter = { propertyName: "membership_type", operator: "EQ", value: "Primary" };
 const SPOUSE:  HubSpotFilter = { propertyName: "membership_type", operator: "EQ", value: "Secondary - Spouse" };
 const PARTNER: HubSpotFilter = { propertyName: "membership_type", operator: "EQ", value: "Secondary - Business Partner" };
+
+/** Prepend a type = <value> filter to every filter group (or single-group array). */
+export function withType(
+  filters: HubSpotFilter[][] | HubSpotFilter[],
+  type: string,
+): HubSpotFilter[][] {
+  const typeF: HubSpotFilter = { propertyName: "type", operator: "EQ", value: type };
+  if (filters.length === 0) return [[typeF]];
+  if (Array.isArray(filters[0])) {
+    return (filters as HubSpotFilter[][]).map((g) => [typeF, ...g]);
+  }
+  return [[typeF, ...(filters as HubSpotFilter[])]];
+}
 
 // ─── Snapshot views ───────────────────────────────────────────────────────────
 
