@@ -930,6 +930,12 @@ export default function DashboardPage() {
               })}>{t}</button>
             ))}
           </div>
+          {/* CT team exclusion */}
+          <label style={S({ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "12px", color: "#444", userSelect: "none" })}>
+            <input type="checkbox" checked={excludeCT} onChange={(e) => setExcludeCT(e.target.checked)}
+              style={S({ width: "14px", height: "14px", cursor: "pointer", accentColor: "#1a1a1a" })} />
+            Exclude CT team
+          </label>
           <button onClick={downloadFullReport} disabled={!!downloadProgress} style={S({ background: downloadProgress ? "#666" : "#1a1a1a", color: "#fff", border: "none", borderRadius: "8px", padding: "9px 16px", fontSize: "13px", fontWeight: 600, cursor: downloadProgress ? "not-allowed" : "pointer" })}>
             ⬇ Download Full Report (CSV)
           </button>
@@ -1552,16 +1558,9 @@ export default function DashboardPage() {
                 </span>
               )}
             </div>
-            <div style={S({ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" })}>
-              <label style={S({ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "13px", color: "#444", userSelect: "none" })}>
-                <input type="checkbox" checked={excludeCT} onChange={(e) => setExcludeCT(e.target.checked)}
-                  style={S({ width: "14px", height: "14px", cursor: "pointer", accentColor: "#1a1a1a" })} />
-                Exclude CT team
-              </label>
-              <button onClick={exportViewCSV} style={S({ background: "#fff", border: "1px solid #e6e6e3", borderRadius: "6px", padding: "7px 12px", fontSize: "13px", fontWeight: 500, cursor: "pointer", color: "#1a1a1a" })}>
-                Export this view (CSV)
-              </button>
-            </div>
+            <button onClick={exportViewCSV} style={S({ background: "#fff", border: "1px solid #e6e6e3", borderRadius: "6px", padding: "7px 12px", fontSize: "13px", fontWeight: 500, cursor: "pointer", color: "#1a1a1a" })}>
+              Export this view (CSV)
+            </button>
           </div>
 
           <div style={S({ overflowX: "auto" })}>
