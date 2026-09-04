@@ -35,6 +35,20 @@ const PRIMARY: HubSpotFilter = { propertyName: "membership_type", operator: "EQ"
 const SPOUSE:  HubSpotFilter = { propertyName: "membership_type", operator: "EQ", value: "Secondary - Spouse" };
 const PARTNER: HubSpotFilter = { propertyName: "membership_type", operator: "EQ", value: "Secondary - Business Partner" };
 
+/** Add NOT_CONTAINS_TOKEN exclusions for CT team domains to every filter group (within the 6-filter cap). */
+export function withExcludeCT(groups: HubSpotFilter[][]): HubSpotFilter[][] {
+  const domains = ["contrarianthink", "bizscout"];
+  return groups.map((group) => {
+    let g = [...group];
+    for (const domain of domains) {
+      if (g.length < 6) {
+        g = [...g, { propertyName: "bdrm_login_email", operator: "NOT_CONTAINS_TOKEN", value: domain }];
+      }
+    }
+    return g;
+  });
+}
+
 /** Prepend a type = <value> filter to every filter group (or single-group array). */
 export function withType(
   filters: HubSpotFilter[][] | HubSpotFilter[],
@@ -166,20 +180,26 @@ export function renewalActualMultiFilters(start: string, end: string): HubSpotFi
   return [renewalActualFilters(start, end)];
 }
 
-/** Expected Renewals (past) — Primary, any status, expected_renewal_date in period */
-export function eligibleRenewalFilters(start: string, end: string): HubSpotFilter[] {
+/** Expected Renewals (past) — Primary + Business Partner, any status, expected_renewal_date in period */
+export function eligibleRenewalFilters(start: string, end: string): HubSpotFilter[][] {
+  const gteF: HubSpotFilter = { propertyName: "expected_renewal_date", operator: "GTE", value: toEpochMs(start) };
+  const lteF: HubSpotFilter = { propertyName: "expected_renewal_date", operator: "LTE", value: toEpochMs(end, true) };
   return [
-    PRIMARY,
-    { propertyName: "expected_renewal_date", operator: "GTE", value: toEpochMs(start) },
-    { propertyName: "expected_renewal_date", operator: "LTE", value: toEpochMs(end, true) },
+    [PRIMARY, gteF, lteF],
+    [PARTNER, gteF, lteF],
   ];
 }
 
-/** Expected Renewals (current/future) — Active/Grace + Primary + expected_renewal_date in period */
+/** Expected Renewals (current/future) — Active/Grace + Primary + Business Partner + expected_renewal_date in period */
 export function eligibleRenewalActiveFilters(start: string, end: string): HubSpotFilter[][] {
   const gteF: HubSpotFilter = { propertyName: "expected_renewal_date", operator: "GTE", value: toEpochMs(start) };
   const lteF: HubSpotFilter = { propertyName: "expected_renewal_date", operator: "LTE", value: toEpochMs(end, true) };
-  return [[ACTIVE, PRIMARY, gteF, lteF], [GRACE, PRIMARY, gteF, lteF]];
+  return [
+    [ACTIVE, PRIMARY, gteF, lteF],
+    [GRACE,  PRIMARY, gteF, lteF],
+    [ACTIVE, PARTNER, gteF, lteF],
+    [GRACE,  PARTNER, gteF, lteF],
+  ];
 }
 
 /** Refunded in period — Inactive – Refunded + expected_renewal_date in period */

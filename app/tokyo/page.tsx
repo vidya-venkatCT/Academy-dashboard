@@ -23,6 +23,7 @@ import {
   refundedFilters,
   cancellationsFilters,
   withType,
+  withExcludeCT,
   HubSpotFilter,
   CONTACT_PROPERTIES,
 } from "@/lib/tokyo-filters";
@@ -284,7 +285,7 @@ function StatCard({ title, subtitle, badge, badgeColor, count, displayValue, isL
   );
 }
 
-function viewFilters(view: ViewKey, start: string, end: string, productType: string | null): HubSpotFilter[][] {
+function viewFilters(view: ViewKey, start: string, end: string, productType: string | null, excl = false): HubSpotFilter[][] {
   const today = new Date().toISOString().slice(0, 10);
   const isPast = end < today;
   let filters: HubSpotFilter[] | HubSpotFilter[][];
@@ -308,7 +309,8 @@ function viewFilters(view: ViewKey, start: string, end: string, productType: str
     case "refunded":          filters = refundedFilters(start, end); break;
     case "cancellations":     filters = cancellationsFilters(start, end); break;
   }
-  return productType ? withType(filters, productType) : (Array.isArray(filters[0]) ? filters as HubSpotFilter[][] : [filters as HubSpotFilter[]]);
+  const groups = productType ? withType(filters, productType) : (Array.isArray(filters[0]) ? filters as HubSpotFilter[][] : [filters as HubSpotFilter[]]);
+  return excl ? withExcludeCT(groups) : groups;
 }
 
 function fmtPrice(v: string | null | undefined): string {
@@ -537,21 +539,22 @@ export default function DashboardPage() {
       ? ((state.counts.renewal / (state.counts.eligible + state.counts.renewal)) * 100).toFixed(1) + "%"
       : "—";
 
-  const loadSnapshotViews = useCallback(async (pt: string) => {
+  const loadSnapshotViews = useCallback(async (pt: string, excl: boolean) => {
     const isAcademy = pt === "Academy";
+    const ct = (g: HubSpotFilter[][]) => excl ? withExcludeCT(g) : g;
     setLoading((l) => ({ ...l, lifetime: true, current: true, primary: true, spouse: true, partner: true, acquired: isAcademy, churnedAll: true, renewalAll: true, refundedAll: true, cancellationsAll: true }));
-    const acqPromise = isAcademy ? searchContacts(withType(acquiredBusinessFilters(), pt)) : Promise.resolve(null as HubSpotResult | null);
+    const acqPromise = isAcademy ? searchContacts(ct(withType(acquiredBusinessFilters(), pt))) : Promise.resolve(null as HubSpotResult | null);
     const [life, all, prim, spo, part, acq, chAll, renAll, refAll, canAll] = await Promise.allSettled([
-      searchContacts(withType(lifetimeFilters(), pt)),
-      searchContacts(withType(currentAllFilters(), pt)),
-      searchContacts(withType(primaryBaseFilters(), pt)),
-      searchContacts(withType(spouseFilters(), pt)),
-      searchContacts(withType(partnerFilters(), pt)),
+      searchContacts(ct(withType(lifetimeFilters(), pt))),
+      searchContacts(ct(withType(currentAllFilters(), pt))),
+      searchContacts(ct(withType(primaryBaseFilters(), pt))),
+      searchContacts(ct(withType(spouseFilters(), pt))),
+      searchContacts(ct(withType(partnerFilters(), pt))),
       acqPromise,
-      searchContacts(withType(churnedAllTimeFilters(), pt)),
-      searchContacts(withType(renewalAllTimeFilters(), pt)),
-      searchContacts(withType(refundedAllTimeFilters(), pt)),
-      searchContacts(withType(cancellationsAllTimeFilters(), pt)),
+      searchContacts(ct(withType(churnedAllTimeFilters(), pt))),
+      searchContacts(ct(withType(renewalAllTimeFilters(), pt))),
+      searchContacts(ct(withType(refundedAllTimeFilters(), pt))),
+      searchContacts(ct(withType(cancellationsAllTimeFilters(), pt))),
     ]);
     setState((s) => {
       const snap = (r: PromiseSettledResult<HubSpotResult | null>) =>
@@ -591,7 +594,8 @@ export default function DashboardPage() {
     setLoading((l) => ({ ...l, lifetime: false, current: false, primary: false, spouse: false, partner: false, acquired: false, churnedAll: false, renewalAll: false, refundedAll: false, cancellationsAll: false }));
   }, []);
 
-  const loadPeriodViews = useCallback(async (start: string, end: string, pt: string) => {
+  const loadPeriodViews = useCallback(async (start: string, end: string, pt: string, excl: boolean) => {
+    const ct = (g: HubSpotFilter[][]) => excl ? withExcludeCT(g) : g;
     setLoading((l) => ({ ...l, new: true, churned: true, renewal: true, eligible: true, refunded: true, cancellations: true }));
     setState((s) => ({
       ...s,
@@ -604,17 +608,17 @@ export default function DashboardPage() {
 
     const today = new Date().toISOString().slice(0, 10);
     const isPast = end < today;
-    const eligFilters = withType(isPast ? eligibleRenewalFilters(start, end) : eligibleRenewalActiveFilters(start, end), pt);
+    const eligFilters = ct(withType(isPast ? eligibleRenewalFilters(start, end) : eligibleRenewalActiveFilters(start, end), pt));
     const [newJ, churn, renew, elig, refund, cancels, newPrim, newSpo, newPart] = await Promise.allSettled([
-      searchContacts(withType(newJoinersFilters(start, end), pt)),
-      searchContacts(withType(churnedFilters(start, end), pt)),
-      searchContacts(withType(renewalActualFilters(start, end), pt)),
+      searchContacts(ct(withType(newJoinersFilters(start, end), pt))),
+      searchContacts(ct(withType(churnedFilters(start, end), pt))),
+      searchContacts(ct(withType(renewalActualFilters(start, end), pt))),
       searchContacts(eligFilters),
-      searchContacts(withType(refundedFilters(start, end), pt)),
-      searchContacts(withType(cancellationsFilters(start, end), pt)),
-      searchContacts(withType(newJoinersPrimaryFilters(start, end), pt)),
-      searchContacts(withType(newJoinersSpouseFilters(start, end), pt)),
-      searchContacts(withType(newJoinersPartnerFilters(start, end), pt)),
+      searchContacts(ct(withType(refundedFilters(start, end), pt))),
+      searchContacts(ct(withType(cancellationsFilters(start, end), pt))),
+      searchContacts(ct(withType(newJoinersPrimaryFilters(start, end), pt))),
+      searchContacts(ct(withType(newJoinersSpouseFilters(start, end), pt))),
+      searchContacts(ct(withType(newJoinersPartnerFilters(start, end), pt))),
     ]);
 
     setState((s) => {
@@ -726,9 +730,9 @@ export default function DashboardPage() {
     setEligActualLoading(false);
   }, []);
 
-  useEffect(() => { loadSnapshotViews(productType); }, [loadSnapshotViews, productType]);
-  useEffect(() => { loadPeriodViews(range.start, range.end, productType); }, // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state.period, state.customStart, state.customEnd, state.specificMonth, productType]);
+  useEffect(() => { loadSnapshotViews(productType, excludeCT); }, [loadSnapshotViews, productType, excludeCT]);
+  useEffect(() => { loadPeriodViews(range.start, range.end, productType, excludeCT); }, // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.period, state.customStart, state.customEnd, state.specificMonth, productType, excludeCT]);
   useEffect(() => {
     if (state.tab === "report") loadReport(reportGranularity, reportYear, productType);
   }, [state.tab, reportGranularity, reportYear, loadReport, productType]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -746,7 +750,7 @@ export default function DashboardPage() {
     const after = state.offsets[view];
     if (!after || state.loadingMore) return;
     setState((s) => ({ ...s, loadingMore: true }));
-    const data = await searchContacts(viewFilters(view, range.start, range.end, productType), after).catch(() => null);
+    const data = await searchContacts(viewFilters(view, range.start, range.end, productType, excludeCT), after).catch(() => null);
     if (data) {
       setState((s) => ({
         ...s,
@@ -1191,7 +1195,7 @@ export default function DashboardPage() {
                     ["New Joiners — Business Partner","New Joiners AND membership_type = Secondary - Business Partner"],
                     ["Business Acquisitions",        "Active or Grace AND owners_circle = true — scoped to the selected period (Academy only)"],
                     ["Churned",                      "status = Expired, Inactive – Delinquent, or Inactive – Refunded AND membership_inactive_date falls in the period"],
-                    ["Expected Renewals",            "membership_type = Primary AND expected_renewal_date falls in the period (past periods: any status; current/future: Active or Grace only)"],
+                    ["Expected Renewals",            "membership_type = Primary OR Business Partner AND expected_renewal_date falls in the period (past periods: any status; current/future: Active or Grace only)"],
                     ["Actual Renewals",              "actual_renewal_date falls in the period"],
                     ["Refunds",                      "status = Inactive – Refunded AND expected_renewal_date falls in the period"],
                     ["Cancellations",                "access_revoked = true AND revocation_date falls in the period"],
@@ -1255,7 +1259,7 @@ export default function DashboardPage() {
                     ["Churned",           "status = Expired, Inactive – Delinquent, or Inactive – Refunded AND membership_inactive_date in the period"],
                     ["Refunded",          "status = Inactive – Refunded AND expected_renewal_date in the period"],
                     ["Actual Renewals",   "actual_renewal_date falls in the period"],
-                    ["Eligible Renewals", "Primary members where expected_renewal_date falls in the period"],
+                    ["Eligible Renewals", "Primary and Business Partner members where expected_renewal_date falls in the period"],
                     ["Renewal Rate",      "Actual Renewals ÷ (Eligible + Actual Renewals) × 100"],
                   ].map(([col, def], i) => (
                     <tr key={col} style={S({ borderBottom: "1px solid #f0f0ee", background: i % 2 === 0 ? "#fff" : "#fafaf9" })}>
