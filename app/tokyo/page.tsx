@@ -1191,7 +1191,7 @@ export default function DashboardPage() {
                     ["Churned",                      "status = Expired, Inactive – Delinquent, or Inactive – Refunded AND membership_inactive_date falls in the period"],
                     ["Expected Renewals",            "membership_type = Primary AND expected_renewal_date falls in the period (past periods: any status; current/future: Active or Grace only)"],
                     ["Actual Renewals",              "actual_renewal_date falls in the period"],
-                    ["Refunds",                      "status = Inactive – Refunded AND membership_inactive_date falls in the period"],
+                    ["Refunds",                      "status = Inactive – Refunded AND expected_renewal_date falls in the period"],
                     ["Cancellations",                "access_revoked = true AND revocation_date falls in the period"],
                   ].map(([col, def], i) => (
                     <tr key={col} style={S({ borderBottom: "1px solid #f0f0ee", background: i % 2 === 0 ? "#fff" : "#fafaf9" })}>
@@ -1251,7 +1251,7 @@ export default function DashboardPage() {
                     ["New Secondary",     "Spouse + Business Partner new joiners — combined total of both secondary membership types"],
                     ["Total New Members", "New Primary + New Secondary"],
                     ["Churned",           "status = Expired, Inactive – Delinquent, or Inactive – Refunded AND membership_inactive_date in the period"],
-                    ["Refunded",          "status = Inactive – Refunded AND membership_inactive_date in the period"],
+                    ["Refunded",          "status = Inactive – Refunded AND expected_renewal_date in the period"],
                     ["Actual Renewals",   "actual_renewal_date falls in the period"],
                     ["Eligible Renewals", "Primary members where expected_renewal_date falls in the period"],
                     ["Renewal Rate",      "Actual Renewals ÷ (Eligible + Actual Renewals) × 100"],

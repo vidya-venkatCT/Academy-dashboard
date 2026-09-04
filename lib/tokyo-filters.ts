@@ -182,12 +182,12 @@ export function eligibleRenewalActiveFilters(start: string, end: string): HubSpo
   return [[ACTIVE, PRIMARY, gteF, lteF], [GRACE, PRIMARY, gteF, lteF]];
 }
 
-/** Refunded in period — Inactive – Refunded + membership_inactive_date in period */
+/** Refunded in period — Inactive – Refunded + expected_renewal_date in period */
 export function refundedFilters(start: string, end: string): HubSpotFilter[] {
   return [
     { propertyName: "status", operator: "EQ", value: "Inactive – Refunded" },
-    { propertyName: "membership_inactive_date", operator: "GTE", value: toEpochMs(start) },
-    { propertyName: "membership_inactive_date", operator: "LTE", value: toEpochMs(end, true) },
+    { propertyName: "expected_renewal_date", operator: "GTE", value: toEpochMs(start) },
+    { propertyName: "expected_renewal_date", operator: "LTE", value: toEpochMs(end, true) },
   ];
 }
 
