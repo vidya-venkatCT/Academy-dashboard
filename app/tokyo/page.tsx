@@ -2,18 +2,26 @@
 
 import { useState, useEffect, useCallback } from "react";
 import {
+  lifetimeFilters,
   currentAllFilters,
   primaryBaseFilters,
-  currentSecondaryFilters,
+  spouseFilters,
+  partnerFilters,
+  acquiredBusinessFilters,
+  churnedAllTimeFilters,
+  renewalAllTimeFilters,
+  refundedAllTimeFilters,
+  cancellationsAllTimeFilters,
   newJoinersFilters,
   newJoinersPrimaryFilters,
-  newJoinersSecondaryFilters,
+  newJoinersSpouseFilters,
+  newJoinersPartnerFilters,
   churnedFilters,
   renewalActualFilters,
   eligibleRenewalFilters,
   eligibleRenewalActiveFilters,
   refundedFilters,
-  acquiredBusinessFilters,
+  cancellationsFilters,
   withType,
   HubSpotFilter,
   CONTACT_PROPERTIES,
@@ -30,15 +38,24 @@ import {
 const PORTAL_ID = "51278247";
 
 export type ViewKey =
+  // Snapshot (all-time)
+  | "lifetime"
   | "current"
   | "primary"
-  | "secondary"
+  | "spouse"
+  | "partner"
+  | "acquired"
+  | "churnedAll"
+  | "renewalAll"
+  | "refundedAll"
+  | "cancellationsAll"
+  // Period
   | "new"
   | "churned"
   | "renewal"
   | "eligible"
   | "refunded"
-  | "acquired";
+  | "cancellations";
 
 interface Contact {
   id: string;
@@ -99,7 +116,7 @@ interface State {
   totals: Record<ViewKey, number | null>;
   offsets: Record<ViewKey, string | undefined>;
   loadingMore: boolean;
-  newBreakdown: { primary: number | null; secondary: number | null };
+  newBreakdown: { primary: number | null; spouse: number | null; partner: number | null };
 }
 
 type LoadingMap = Record<ViewKey, boolean>;
@@ -209,7 +226,11 @@ function last30Days(): { start: string; end: string } {
   return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
 }
 
-const ALL_VIEWS: ViewKey[] = ["current", "primary", "secondary", "new", "churned", "renewal", "eligible", "refunded", "acquired"];
+const ALL_VIEWS: ViewKey[] = [
+  "lifetime", "current", "primary", "spouse", "partner", "acquired",
+  "churnedAll", "renewalAll", "refundedAll", "cancellationsAll",
+  "new", "churned", "renewal", "eligible", "refunded", "cancellations",
+];
 
 function makeNullRecord<T>(val: T): Record<ViewKey, T> {
   return Object.fromEntries(ALL_VIEWS.map((k) => [k, val])) as Record<ViewKey, T>;
@@ -268,15 +289,24 @@ function viewFilters(view: ViewKey, start: string, end: string, productType: str
   const isPast = end < today;
   let filters: HubSpotFilter[] | HubSpotFilter[][];
   switch (view) {
-    case "current":   filters = currentAllFilters(); break;
-    case "primary":   filters = primaryBaseFilters(); break;
-    case "secondary": filters = currentSecondaryFilters(); break;
-    case "new":       filters = newJoinersFilters(start, end); break;
-    case "churned":   filters = churnedFilters(start, end); break;
-    case "renewal":   filters = renewalActualFilters(start, end); break;
-    case "eligible":  filters = isPast ? eligibleRenewalFilters(start, end) : eligibleRenewalActiveFilters(start, end); break;
-    case "refunded":  filters = refundedFilters(start, end); break;
-    case "acquired":  filters = acquiredBusinessFilters(); break;
+    // Snapshot
+    case "lifetime":          filters = lifetimeFilters(); break;
+    case "current":           filters = currentAllFilters(); break;
+    case "primary":           filters = primaryBaseFilters(); break;
+    case "spouse":            filters = spouseFilters(); break;
+    case "partner":           filters = partnerFilters(); break;
+    case "acquired":          filters = acquiredBusinessFilters(); break;
+    case "churnedAll":        filters = churnedAllTimeFilters(); break;
+    case "renewalAll":        filters = renewalAllTimeFilters(); break;
+    case "refundedAll":       filters = refundedAllTimeFilters(); break;
+    case "cancellationsAll":  filters = cancellationsAllTimeFilters(); break;
+    // Period
+    case "new":               filters = newJoinersFilters(start, end); break;
+    case "churned":           filters = churnedFilters(start, end); break;
+    case "renewal":           filters = renewalActualFilters(start, end); break;
+    case "eligible":          filters = isPast ? eligibleRenewalFilters(start, end) : eligibleRenewalActiveFilters(start, end); break;
+    case "refunded":          filters = refundedFilters(start, end); break;
+    case "cancellations":     filters = cancellationsFilters(start, end); break;
   }
   return productType ? withType(filters, productType) : (Array.isArray(filters[0]) ? filters as HubSpotFilter[][] : [filters as HubSpotFilter[]]);
 }
@@ -344,15 +374,23 @@ function tableColumns(view: ViewKey): TableCol[] {
   const revokedCol:   TableCol = { label: "Revoked Date",   value: (c) => fmtDate(c.properties.revocation_date),        sortKey: dateSort("revocation_date") };
   const inactiveCol:  TableCol = { label: "Inactive Date",  value: (c) => fmtDate(c.properties.membership_inactive_date), sortKey: dateSort("membership_inactive_date") };
 
+  const cancelledCol: TableCol = { label: "Revoked Date", value: (c) => fmtDate(c.properties.revocation_date), sortKey: dateSort("revocation_date") };
+
   switch (view) {
     case "churned":
+    case "churnedAll":
       return [nameCol, emailCol, statusCol, typeCol, inactiveCol, joinCol];
     case "renewal":
+    case "renewalAll":
       return [nameCol, emailCol, statusCol, typeCol, renewalCol, priceCol];
     case "eligible":
       return [nameCol, emailCol, statusCol, typeCol, eligibleCol, priceCol];
     case "refunded":
-      return [nameCol, emailCol, statusCol, typeCol, eligibleCol, priceCol];
+    case "refundedAll":
+      return [nameCol, emailCol, statusCol, typeCol, inactiveCol, priceCol];
+    case "cancellations":
+    case "cancellationsAll":
+      return [nameCol, emailCol, statusCol, typeCol, cancelledCol, joinCol];
     case "acquired":
       return [nameCol, emailCol, statusCol, typeCol, joinCol];
     default:
@@ -361,15 +399,22 @@ function tableColumns(view: ViewKey): TableCol[] {
 }
 
 const VIEW_TITLES: Record<ViewKey, string> = {
-  current:   "Current Members (All)",
-  primary:   "Current Primary Members",
-  secondary: "Current Secondary Members",
-  new:       "New Joiners",
-  churned:   "Churned Members",
-  renewal:   "Renewals — Actual",
-  eligible:  "Eligible Renewals",
-  refunded:  "Refunded Members",
-  acquired:  "Has Acquired a Business",
+  lifetime:          "Lifetime Members",
+  current:           "Current Active Members",
+  primary:           "Current Active — Primary",
+  spouse:            "Current Active — Spouse",
+  partner:           "Current Active — Business Partner",
+  acquired:          "Business Acquisitions",
+  churnedAll:        "Churned (All Time)",
+  renewalAll:        "Actual Renewals (All Time)",
+  refundedAll:       "Refunds (All Time)",
+  cancellationsAll:  "Cancellations (All Time)",
+  new:               "New Joiners",
+  churned:           "Churned",
+  renewal:           "Actual Renewals",
+  eligible:          "Expected Renewals",
+  refunded:          "Refunds",
+  cancellations:     "Cancellations",
 };
 
 function PeriodBar({ state, customTempStart, customTempEnd, setCustomTempStart, setCustomTempEnd, onSetPeriod, onApplyCustom, pastMonths, nextMonths, onSetSpecificMonth }: {
@@ -446,13 +491,13 @@ export default function DashboardPage() {
     customStart: d30start,
     customEnd: d30end,
     specificMonth: currentMonthValue(),
-    activeView: "new",
+    activeView: "new" as ViewKey,
     counts: makeNullRecord(null),
     rows: makeNullRecord([]) as Record<ViewKey, Contact[]>,
     totals: makeNullRecord(null),
     offsets: makeNullRecord(undefined) as Record<ViewKey, string | undefined>,
     loadingMore: false,
-    newBreakdown: { primary: null, secondary: null },
+    newBreakdown: { primary: null, spouse: null, partner: null },
   });
 
   const [loading, setLoading] = useState<LoadingMap>(makeNullRecord(true) as LoadingMap);
@@ -492,63 +537,97 @@ export default function DashboardPage() {
       : "—";
 
   const loadSnapshotViews = useCallback(async (pt: string) => {
-    setLoading((l) => ({ ...l, current: true, primary: true, secondary: true, acquired: true }));
-    const [all, prim, sec, acq] = await Promise.allSettled([
+    const isAcademy = pt === "Academy";
+    setLoading((l) => ({ ...l, lifetime: true, current: true, primary: true, spouse: true, partner: true, acquired: isAcademy, churnedAll: true, renewalAll: true, refundedAll: true, cancellationsAll: true }));
+    const acqPromise = isAcademy ? searchContacts(withType(acquiredBusinessFilters(), pt)) : Promise.resolve(null as HubSpotResult | null);
+    const [life, all, prim, spo, part, acq, chAll, renAll, refAll, canAll] = await Promise.allSettled([
+      searchContacts(withType(lifetimeFilters(), pt)),
       searchContacts(withType(currentAllFilters(), pt)),
       searchContacts(withType(primaryBaseFilters(), pt)),
-      searchContacts(withType(currentSecondaryFilters(), pt)),
-      searchContacts(withType(acquiredBusinessFilters(), pt)),
+      searchContacts(withType(spouseFilters(), pt)),
+      searchContacts(withType(partnerFilters(), pt)),
+      acqPromise,
+      searchContacts(withType(churnedAllTimeFilters(), pt)),
+      searchContacts(withType(renewalAllTimeFilters(), pt)),
+      searchContacts(withType(refundedAllTimeFilters(), pt)),
+      searchContacts(withType(cancellationsAllTimeFilters(), pt)),
     ]);
     setState((s) => {
-      const snap = (r: PromiseSettledResult<HubSpotResult>) =>
+      const snap = (r: PromiseSettledResult<HubSpotResult | null>) =>
         r.status === "fulfilled" ? r.value : null;
       return {
         ...s,
-        counts: { ...s.counts, current: snap(all)?.total ?? null, primary: snap(prim)?.total ?? null, secondary: snap(sec)?.total ?? null, acquired: snap(acq)?.total ?? null },
-        rows:   { ...s.rows,   current: snap(all)?.results ?? [], primary: snap(prim)?.results ?? [], secondary: snap(sec)?.results ?? [], acquired: snap(acq)?.results ?? [] },
-        totals: { ...s.totals, current: snap(all)?.total ?? null, primary: snap(prim)?.total ?? null, secondary: snap(sec)?.total ?? null, acquired: snap(acq)?.total ?? null },
-        offsets: { ...s.offsets, current: snap(all)?.paging?.next?.after, primary: snap(prim)?.paging?.next?.after, secondary: snap(sec)?.paging?.next?.after, acquired: snap(acq)?.paging?.next?.after },
+        counts: { ...s.counts,
+          lifetime: snap(life)?.total ?? null, current: snap(all)?.total ?? null,
+          primary: snap(prim)?.total ?? null, spouse: snap(spo)?.total ?? null, partner: snap(part)?.total ?? null,
+          acquired: isAcademy ? (snap(acq)?.total ?? null) : null,
+          churnedAll: snap(chAll)?.total ?? null, renewalAll: snap(renAll)?.total ?? null,
+          refundedAll: snap(refAll)?.total ?? null, cancellationsAll: snap(canAll)?.total ?? null,
+        },
+        rows: { ...s.rows,
+          lifetime: snap(life)?.results ?? [], current: snap(all)?.results ?? [],
+          primary: snap(prim)?.results ?? [], spouse: snap(spo)?.results ?? [], partner: snap(part)?.results ?? [],
+          acquired: snap(acq)?.results ?? [],
+          churnedAll: snap(chAll)?.results ?? [], renewalAll: snap(renAll)?.results ?? [],
+          refundedAll: snap(refAll)?.results ?? [], cancellationsAll: snap(canAll)?.results ?? [],
+        },
+        totals: { ...s.totals,
+          lifetime: snap(life)?.total ?? null, current: snap(all)?.total ?? null,
+          primary: snap(prim)?.total ?? null, spouse: snap(spo)?.total ?? null, partner: snap(part)?.total ?? null,
+          acquired: isAcademy ? (snap(acq)?.total ?? null) : null,
+          churnedAll: snap(chAll)?.total ?? null, renewalAll: snap(renAll)?.total ?? null,
+          refundedAll: snap(refAll)?.total ?? null, cancellationsAll: snap(canAll)?.total ?? null,
+        },
+        offsets: { ...s.offsets,
+          lifetime: snap(life)?.paging?.next?.after, current: snap(all)?.paging?.next?.after,
+          primary: snap(prim)?.paging?.next?.after, spouse: snap(spo)?.paging?.next?.after, partner: snap(part)?.paging?.next?.after,
+          acquired: snap(acq)?.paging?.next?.after,
+          churnedAll: snap(chAll)?.paging?.next?.after, renewalAll: snap(renAll)?.paging?.next?.after,
+          refundedAll: snap(refAll)?.paging?.next?.after, cancellationsAll: snap(canAll)?.paging?.next?.after,
+        },
       };
     });
-    setLoading((l) => ({ ...l, current: false, primary: false, secondary: false, acquired: false }));
+    setLoading((l) => ({ ...l, lifetime: false, current: false, primary: false, spouse: false, partner: false, acquired: false, churnedAll: false, renewalAll: false, refundedAll: false, cancellationsAll: false }));
   }, []);
 
   const loadPeriodViews = useCallback(async (start: string, end: string, pt: string) => {
-    setLoading((l) => ({ ...l, new: true, churned: true, renewal: true, eligible: true, refunded: true }));
+    setLoading((l) => ({ ...l, new: true, churned: true, renewal: true, eligible: true, refunded: true, cancellations: true }));
     setState((s) => ({
       ...s,
-      counts:  { ...s.counts,  new: null, churned: null, renewal: null, eligible: null, refunded: null },
-      rows:    { ...s.rows,    new: [],   churned: [],   renewal: [],   eligible: [],   refunded: [] },
-      totals:  { ...s.totals,  new: null, churned: null, renewal: null, eligible: null, refunded: null },
-      offsets: { ...s.offsets, new: undefined, churned: undefined, renewal: undefined, eligible: undefined, refunded: undefined },
-      newBreakdown: { primary: null, secondary: null },
+      counts:  { ...s.counts,  new: null, churned: null, renewal: null, eligible: null, refunded: null, cancellations: null },
+      rows:    { ...s.rows,    new: [],   churned: [],   renewal: [],   eligible: [],   refunded: [],   cancellations: [] },
+      totals:  { ...s.totals,  new: null, churned: null, renewal: null, eligible: null, refunded: null, cancellations: null },
+      offsets: { ...s.offsets, new: undefined, churned: undefined, renewal: undefined, eligible: undefined, refunded: undefined, cancellations: undefined },
+      newBreakdown: { primary: null, spouse: null, partner: null },
     }));
 
     const today = new Date().toISOString().slice(0, 10);
     const isPast = end < today;
     const eligFilters = withType(isPast ? eligibleRenewalFilters(start, end) : eligibleRenewalActiveFilters(start, end), pt);
-    const [newJ, churn, renew, elig, refund, newPrim, newSec] = await Promise.allSettled([
+    const [newJ, churn, renew, elig, refund, cancels, newPrim, newSpo, newPart] = await Promise.allSettled([
       searchContacts(withType(newJoinersFilters(start, end), pt)),
       searchContacts(withType(churnedFilters(start, end), pt)),
       searchContacts(withType(renewalActualFilters(start, end), pt)),
       searchContacts(eligFilters),
       searchContacts(withType(refundedFilters(start, end), pt)),
+      searchContacts(withType(cancellationsFilters(start, end), pt)),
       searchContacts(withType(newJoinersPrimaryFilters(start, end), pt)),
-      searchContacts(withType(newJoinersSecondaryFilters(start, end), pt)),
+      searchContacts(withType(newJoinersSpouseFilters(start, end), pt)),
+      searchContacts(withType(newJoinersPartnerFilters(start, end), pt)),
     ]);
 
     setState((s) => {
       const v = (r: PromiseSettledResult<HubSpotResult>) => r.status === "fulfilled" ? r.value : null;
       return {
         ...s,
-        counts:  { ...s.counts,  new: v(newJ)?.total ?? null, churned: v(churn)?.total ?? null, renewal: v(renew)?.total ?? null, eligible: v(elig)?.total ?? null, refunded: v(refund)?.total ?? null },
-        rows:    { ...s.rows,    new: v(newJ)?.results ?? [], churned: v(churn)?.results ?? [], renewal: v(renew)?.results ?? [], eligible: v(elig)?.results ?? [], refunded: v(refund)?.results ?? [] },
-        totals:  { ...s.totals,  new: v(newJ)?.total ?? null, churned: v(churn)?.total ?? null, renewal: v(renew)?.total ?? null, eligible: v(elig)?.total ?? null, refunded: v(refund)?.total ?? null },
-        offsets: { ...s.offsets, new: v(newJ)?.paging?.next?.after, churned: v(churn)?.paging?.next?.after, renewal: v(renew)?.paging?.next?.after, eligible: v(elig)?.paging?.next?.after, refunded: v(refund)?.paging?.next?.after },
-        newBreakdown: { primary: v(newPrim)?.total ?? null, secondary: v(newSec)?.total ?? null },
+        counts:  { ...s.counts,  new: v(newJ)?.total ?? null, churned: v(churn)?.total ?? null, renewal: v(renew)?.total ?? null, eligible: v(elig)?.total ?? null, refunded: v(refund)?.total ?? null, cancellations: v(cancels)?.total ?? null },
+        rows:    { ...s.rows,    new: v(newJ)?.results ?? [], churned: v(churn)?.results ?? [], renewal: v(renew)?.results ?? [], eligible: v(elig)?.results ?? [], refunded: v(refund)?.results ?? [], cancellations: v(cancels)?.results ?? [] },
+        totals:  { ...s.totals,  new: v(newJ)?.total ?? null, churned: v(churn)?.total ?? null, renewal: v(renew)?.total ?? null, eligible: v(elig)?.total ?? null, refunded: v(refund)?.total ?? null, cancellations: v(cancels)?.total ?? null },
+        offsets: { ...s.offsets, new: v(newJ)?.paging?.next?.after, churned: v(churn)?.paging?.next?.after, renewal: v(renew)?.paging?.next?.after, eligible: v(elig)?.paging?.next?.after, refunded: v(refund)?.paging?.next?.after, cancellations: v(cancels)?.paging?.next?.after },
+        newBreakdown: { primary: v(newPrim)?.total ?? null, spouse: v(newSpo)?.total ?? null, partner: v(newPart)?.total ?? null },
       };
     });
-    setLoading((l) => ({ ...l, new: false, churned: false, renewal: false, eligible: false, refunded: false }));
+    setLoading((l) => ({ ...l, new: false, churned: false, renewal: false, eligible: false, refunded: false, cancellations: false }));
   }, []);
 
   const loadReport = useCallback(async (granularity: ReportGranularity, year: number, pt: string) => {
@@ -572,9 +651,10 @@ export default function DashboardPage() {
 
       const eligFilters = withType(isPast ? eligibleRenewalFilters(p.start, p.end) : eligibleRenewalActiveFilters(p.start, p.end), pt);
       try {
-        const [newPrim, newSec, churn, refund, actual, eligible] = await Promise.all([
+        const [newPrim, newSpo, newPart, churn, refund, actual, eligible] = await Promise.all([
           searchContacts(withType(newJoinersPrimaryFilters(p.start, p.end), pt)),
-          searchContacts(withType(newJoinersSecondaryFilters(p.start, p.end), pt)),
+          searchContacts(withType(newJoinersSpouseFilters(p.start, p.end), pt)),
+          searchContacts(withType(newJoinersPartnerFilters(p.start, p.end), pt)),
           searchContacts(withType(churnedFilters(p.start, p.end), pt)),
           searchContacts(withType(refundedFilters(p.start, p.end), pt)),
           searchContacts(withType(renewalActualFilters(p.start, p.end), pt)),
@@ -582,7 +662,7 @@ export default function DashboardPage() {
         ]);
         const counts: StoredRowCounts = {
           newPrimary:   newPrim.total   ?? newPrim.results.length,
-          newSecondary: newSec.total    ?? newSec.results.length,
+          newSecondary: (newSpo.total ?? newSpo.results.length) + (newPart.total ?? newPart.results.length),
           churned:      churn.total     ?? churn.results.length,
           refunded:     refund.total    ?? refund.results.length,
           actual:       actual.total    ?? actual.results.length,
@@ -728,14 +808,16 @@ export default function DashboardPage() {
   async function downloadFullReport() {
     setDownloadProgress("Starting full report…");
     const views: { key: ViewKey; title: string; snapshot: boolean }[] = [
-      { key: "current",   title: "Current Members (All)", snapshot: true },
-      { key: "primary",   title: "Current Primary",       snapshot: true },
-      { key: "secondary", title: "Current Secondary",     snapshot: true },
-      { key: "new",       title: "New Joiners",           snapshot: false },
-      { key: "churned",   title: "Churned",               snapshot: false },
-      { key: "renewal",   title: "Renewals (Actual)",     snapshot: false },
-      { key: "eligible",  title: "Eligible Renewals",     snapshot: false },
-      { key: "refunded",  title: "Refunded",              snapshot: false },
+      { key: "current",           title: "Current Members (All)",  snapshot: true  },
+      { key: "primary",           title: "Current Primary",         snapshot: true  },
+      { key: "spouse",            title: "Current Spouse",          snapshot: true  },
+      { key: "partner",           title: "Current Business Partner",snapshot: true  },
+      { key: "new",               title: "New Joiners",             snapshot: false },
+      { key: "churned",           title: "Churned",                 snapshot: false },
+      { key: "renewal",           title: "Renewals (Actual)",       snapshot: false },
+      { key: "eligible",          title: "Eligible Renewals",       snapshot: false },
+      { key: "refunded",          title: "Refunded",                snapshot: false },
+      { key: "cancellations",     title: "Cancellations",           snapshot: false },
     ];
     const headers = ["Segment","Period / Month","HubSpot ID","HubSpot URL","Name","Email","Status","Membership Type","Date Joined","Actual Renewal","Expected Renewal","Owners Circle","Renewal Price"];
     const allLines: string[] = [headers.map(csvEscape).join(",")];
@@ -823,7 +905,8 @@ export default function DashboardPage() {
           <p style={S({ margin: "2px 0 0", fontSize: "13px", color: "#666" })}>
             {state.counts.current !== null ? `${state.counts.current.toLocaleString()} current members` : "Loading…"}
             {state.counts.primary !== null ? ` · ${state.counts.primary.toLocaleString()} primary` : ""}
-            {state.counts.secondary !== null ? ` · ${state.counts.secondary.toLocaleString()} secondary` : ""}
+            {state.counts.spouse !== null ? ` · ${state.counts.spouse.toLocaleString()} spouse` : ""}
+            {state.counts.partner !== null ? ` · ${state.counts.partner.toLocaleString()} partner` : ""}
           </p>
         </div>
         <div style={S({ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "8px" })}>
@@ -864,38 +947,66 @@ export default function DashboardPage() {
 
         {state.tab === "members" && (
           <>
+            {/* ── Snapshot (All Time) ─────────────────────────────────────────── */}
             <p style={S({ margin: "0 0 12px", fontSize: "12px", fontWeight: 600, color: "#666", textTransform: "uppercase", letterSpacing: "0.05em" })}>
               Membership Snapshot · All Time
             </p>
-            <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "24px" })}>
-              <StatCard title="Current Members" subtitle="status = Active or Grace" badge="All" badgeColor="green" count={state.counts.current} isLoading={loading.current} active={state.activeView === "current"} onClick={() => setView("current")} />
-              <StatCard title="Current Primary" subtitle="Primary members only" badge="Primary" badgeColor="cyan" count={state.counts.primary} isLoading={loading.primary} active={state.activeView === "primary"} onClick={() => setView("primary")} />
-              <StatCard title="Current Secondary" subtitle="Under a primary member" badge="Secondary" badgeColor="purple" count={state.counts.secondary} isLoading={loading.secondary} active={state.activeView === "secondary"} onClick={() => setView("secondary")} />
-              <StatCard title="Has Acquired a Business" subtitle="owners_circle = true" badge="Acquired" badgeColor="orange" count={state.counts.acquired} isLoading={loading.acquired} active={state.activeView === "acquired"} onClick={() => setView("acquired")} />
+
+            {/* Row 1: Lifetime */}
+            <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "12px" })}>
+              <StatCard title="Lifetime Members" subtitle="All members ever" badge="Lifetime" badgeColor="black" count={state.counts.lifetime} isLoading={loading.lifetime} active={state.activeView === "lifetime"} onClick={() => setView("lifetime")} />
             </div>
 
+            {/* Row 2: Current Active breakdown */}
+            <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px", marginBottom: "12px" })}>
+              <StatCard title="Current Active" subtitle="Total Active or Grace" badge="All" badgeColor="green" count={state.counts.current} isLoading={loading.current} active={state.activeView === "current"} onClick={() => setView("current")} />
+              <StatCard title="Primary" subtitle="Active/Grace — Primary" badge="Primary" badgeColor="cyan" count={state.counts.primary} isLoading={loading.primary} active={state.activeView === "primary"} onClick={() => setView("primary")} />
+              <StatCard title="Spouse" subtitle="Active/Grace — Secondary Spouse" badge="Spouse" badgeColor="purple" count={state.counts.spouse} isLoading={loading.spouse} active={state.activeView === "spouse"} onClick={() => setView("spouse")} />
+              <StatCard title="Business Partner" subtitle="Active/Grace — Secondary Partner" badge="Partner" badgeColor="indigo" count={state.counts.partner} isLoading={loading.partner} active={state.activeView === "partner"} onClick={() => setView("partner")} />
+            </div>
+
+            {/* Row 3: Business Acquisitions (Academy only) */}
+            {productType === "Academy" && (
+              <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "12px" })}>
+                <StatCard title="Business Acquisitions" subtitle="owners_circle = true" badge="Acquired" badgeColor="orange" count={state.counts.acquired} isLoading={loading.acquired} active={state.activeView === "acquired"} onClick={() => setView("acquired")} />
+              </div>
+            )}
+
+            {/* Row 4: Churned / Renewals / Refunds / Cancellations all-time */}
+            <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px", marginBottom: "28px" })}>
+              <StatCard title="Churned" subtitle="All inactive statuses ever" badge="All Time" badgeColor="red" count={state.counts.churnedAll} isLoading={loading.churnedAll} active={state.activeView === "churnedAll"} onClick={() => setView("churnedAll")} />
+              <StatCard title="Actual Renewals" subtitle="Has an actual renewal date" badge="All Time" badgeColor="yellow" count={state.counts.renewalAll} isLoading={loading.renewalAll} active={state.activeView === "renewalAll"} onClick={() => setView("renewalAll")} />
+              <StatCard title="Refunds" subtitle="Inactive – Refunded ever" badge="All Time" badgeColor="rose" count={state.counts.refundedAll} isLoading={loading.refundedAll} active={state.activeView === "refundedAll"} onClick={() => setView("refundedAll")} />
+              <StatCard title="Cancellations" subtitle="Access revoked ever" badge="All Time" badgeColor="gray" count={state.counts.cancellationsAll} isLoading={loading.cancellationsAll} active={state.activeView === "cancellationsAll"} onClick={() => setView("cancellationsAll")} />
+            </div>
+
+            {/* ── Period ──────────────────────────────────────────────────────── */}
             <PeriodBar state={state} customTempStart={customTempStart} customTempEnd={customTempEnd}
               setCustomTempStart={setCustomTempStart} setCustomTempEnd={setCustomTempEnd}
               onSetPeriod={setPeriod} onApplyCustom={applyCustom}
               pastMonths={pastMonths} nextMonths={nextMonths}
               onSetSpecificMonth={(v) => setState((s) => ({ ...s, period: "specific", specificMonth: v }))} />
 
-            <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "24px" })}>
+            <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px", marginBottom: "12px" })}>
               <StatCard
                 title="New Joiners"
                 subtitle={
-                  state.newBreakdown.primary !== null && state.newBreakdown.secondary !== null
-                    ? `${state.newBreakdown.primary} primary · ${state.newBreakdown.secondary} secondary`
+                  state.newBreakdown.primary !== null
+                    ? `${state.newBreakdown.primary} primary · ${state.newBreakdown.spouse ?? 0} spouse · ${state.newBreakdown.partner ?? 0} partner`
                     : `Joined in ${range.label}`
                 }
                 badge="New" badgeColor="blue" count={state.counts.new} isLoading={loading.new} active={state.activeView === "new"} onClick={() => setView("new")} />
+              {productType === "Academy" && (
+                <StatCard title="Business Acquisitions" subtitle={`owners_circle in ${range.label}`} badge="Acquired" badgeColor="orange" count={state.counts.acquired} isLoading={loading.acquired} active={state.activeView === "acquired"} onClick={() => setView("acquired")} />
+              )}
               <StatCard title="Churned" subtitle={`Became inactive in ${range.label}`} badge="Churned" badgeColor="red" count={state.counts.churned} isLoading={loading.churned} active={state.activeView === "churned"} onClick={() => setView("churned")} />
-              <StatCard title="Renewals — Actual" subtitle={`Renewed in ${range.label}`} badge="Renewed" badgeColor="yellow" count={state.counts.renewal} isLoading={loading.renewal} active={state.activeView === "renewal"} onClick={() => setView("renewal")} />
-              <StatCard title="Refunded" subtitle={`Expired in ${range.label}`} badge="Refunded" badgeColor="rose" count={state.counts.refunded} isLoading={loading.refunded} active={state.activeView === "refunded"} onClick={() => setView("refunded")} />
+              <StatCard title="Expected Renewals" subtitle={`Expiring in ${range.label}`} badge="Expected" badgeColor="orange" count={state.counts.eligible} isLoading={loading.eligible} active={state.activeView === "eligible"} onClick={() => setView("eligible")} />
+              <StatCard title="Actual Renewals" subtitle={`Renewed in ${range.label}`} badge="Actual" badgeColor="yellow" count={state.counts.renewal} isLoading={loading.renewal} active={state.activeView === "renewal"} onClick={() => setView("renewal")} />
+              <StatCard title="Refunds" subtitle={`Refunded in ${range.label}`} badge="Refunded" badgeColor="rose" count={state.counts.refunded} isLoading={loading.refunded} active={state.activeView === "refunded"} onClick={() => setView("refunded")} />
+              <StatCard title="Cancellations" subtitle={`Cancelled in ${range.label}`} badge="Cancelled" badgeColor="gray" count={state.counts.cancellations} isLoading={loading.cancellations} active={state.activeView === "cancellations"} onClick={() => setView("cancellations")} />
             </div>
 
             <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "24px" })}>
-              <StatCard title="Eligible Renewals" subtitle={`Expiring in ${range.label}`} badge="In period" badgeColor="orange" count={state.counts.eligible} isLoading={loading.eligible} active={state.activeView === "eligible"} onClick={() => setView("eligible")} />
               <StatCard title="Renewal Rate" subtitle={`${state.counts.renewal ?? "—"} of ${state.counts.eligible ?? "—"} eligible · ${range.label}`} badge="Actual / (Eligible + Actual)" badgeColor="black" count={null} displayValue={renewalRate} isLoading={loading.renewal || loading.eligible} active={false} clickable={false} />
             </div>
           </>
@@ -908,10 +1019,11 @@ export default function DashboardPage() {
             <p style={S({ margin: "0 0 12px", fontSize: "12px", fontWeight: 600, color: "#666", textTransform: "uppercase", letterSpacing: "0.05em" })}>
               Membership Snapshot · All Time
             </p>
-            <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "28px" })}>
-              <StatCard title="Current Members" subtitle="status = Active or Grace" badge="All" badgeColor="green" count={state.counts.current} isLoading={loading.current} active={false} clickable={false} />
-              <StatCard title="Current Primary" subtitle="Primary members only" badge="Primary" badgeColor="cyan" count={state.counts.primary} isLoading={loading.primary} active={false} clickable={false} />
-              <StatCard title="Current Secondary" subtitle="Under a primary member" badge="Secondary" badgeColor="purple" count={state.counts.secondary} isLoading={loading.secondary} active={false} clickable={false} />
+            <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px", marginBottom: "28px" })}>
+              <StatCard title="Current Active" subtitle="Total Active or Grace" badge="All" badgeColor="green" count={state.counts.current} isLoading={loading.current} active={false} clickable={false} />
+              <StatCard title="Primary" subtitle="Primary members only" badge="Primary" badgeColor="cyan" count={state.counts.primary} isLoading={loading.primary} active={false} clickable={false} />
+              <StatCard title="Spouse" subtitle="Secondary Spouse" badge="Spouse" badgeColor="purple" count={state.counts.spouse} isLoading={loading.spouse} active={false} clickable={false} />
+              <StatCard title="Business Partner" subtitle="Secondary Business Partner" badge="Partner" badgeColor="indigo" count={state.counts.partner} isLoading={loading.partner} active={false} clickable={false} />
             </div>
 
             {/* Controls */}

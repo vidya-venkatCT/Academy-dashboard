@@ -5,15 +5,24 @@ export interface HubSpotFilter {
 }
 
 export type ViewKey =
+  // ── Snapshot (all-time) ─────────────────────────────────────────────────────
+  | "lifetime"
   | "current"
   | "primary"
-  | "secondary"
+  | "spouse"
+  | "partner"
+  | "acquired"
+  | "churnedAll"
+  | "renewalAll"
+  | "refundedAll"
+  | "cancellationsAll"
+  // ── Period ──────────────────────────────────────────────────────────────────
   | "new"
   | "churned"
   | "renewal"
   | "eligible"
   | "refunded"
-  | "acquired";
+  | "cancellations";
 
 function toEpochMs(dateStr: string, endOfDay = false): string {
   const suffix = endOfDay ? "T23:59:59Z" : "T00:00:00Z";
@@ -39,69 +48,102 @@ export function withType(
   return [[typeF, ...(filters as HubSpotFilter[])]];
 }
 
-// ─── Snapshot views ───────────────────────────────────────────────────────────
+// ─── Snapshot (all-time) filters ─────────────────────────────────────────────
 
-/** Current Members — status Active OR Grace */
+/** All memberships ever — all 5 status values cover every record */
+export function lifetimeFilters(): HubSpotFilter[][] {
+  return [
+    [{ propertyName: "status", operator: "EQ", value: "Active" }],
+    [{ propertyName: "status", operator: "EQ", value: "Grace" }],
+    [{ propertyName: "status", operator: "EQ", value: "Expired" }],
+    [{ propertyName: "status", operator: "EQ", value: "Inactive – Delinquent" }],
+    [{ propertyName: "status", operator: "EQ", value: "Inactive – Refunded" }],
+  ];
+}
+
+/** Current Members — Active OR Grace */
 export function currentAllFilters(): HubSpotFilter[][] {
-  return [
-    [ACTIVE],
-    [GRACE],
-  ];
+  return [[ACTIVE], [GRACE]];
 }
 
-/** Primary — Active/Grace + membership_type = Primary */
+/** Current Primary — Active/Grace + Primary */
 export function primaryBaseFilters(): HubSpotFilter[][] {
+  return [[ACTIVE, PRIMARY], [GRACE, PRIMARY]];
+}
+
+/** Current Spouse — Active/Grace + Secondary - Spouse */
+export function spouseFilters(): HubSpotFilter[][] {
+  return [[ACTIVE, SPOUSE], [GRACE, SPOUSE]];
+}
+
+/** Current Business Partner — Active/Grace + Secondary - Business Partner */
+export function partnerFilters(): HubSpotFilter[][] {
+  return [[ACTIVE, PARTNER], [GRACE, PARTNER]];
+}
+
+/** Business Acquisitions — owners_circle = true + Active/Grace */
+export function acquiredBusinessFilters(): HubSpotFilter[][] {
   return [
-    [ACTIVE, PRIMARY],
-    [GRACE,  PRIMARY],
+    [ACTIVE, { propertyName: "owners_circle", operator: "EQ", value: "true" }],
+    [GRACE,  { propertyName: "owners_circle", operator: "EQ", value: "true" }],
   ];
 }
 
-/** Secondary — Active/Grace + Spouse OR Business Partner */
-export function currentSecondaryFilters(): HubSpotFilter[][] {
+/** Churned all-time — all 3 inactive statuses, no date filter */
+export function churnedAllTimeFilters(): HubSpotFilter[][] {
   return [
-    [ACTIVE, SPOUSE],
-    [ACTIVE, PARTNER],
-    [GRACE,  SPOUSE],
-    [GRACE,  PARTNER],
+    [{ propertyName: "status", operator: "EQ", value: "Expired" }],
+    [{ propertyName: "status", operator: "EQ", value: "Inactive – Delinquent" }],
+    [{ propertyName: "status", operator: "EQ", value: "Inactive – Refunded" }],
   ];
 }
 
-// ─── Period views ─────────────────────────────────────────────────────────────
+/** Actual Renewals all-time — any record with actual_renewal_date set */
+export function renewalAllTimeFilters(): HubSpotFilter[] {
+  return [{ propertyName: "actual_renewal_date", operator: "GTE", value: "0" }];
+}
+
+/** Refunded all-time — Inactive – Refunded, no date filter */
+export function refundedAllTimeFilters(): HubSpotFilter[] {
+  return [{ propertyName: "status", operator: "EQ", value: "Inactive – Refunded" }];
+}
+
+/** Cancellations all-time — access_revoked = true */
+export function cancellationsAllTimeFilters(): HubSpotFilter[] {
+  return [{ propertyName: "access_revoked", operator: "EQ", value: "true" }];
+}
+
+// ─── Period filters ───────────────────────────────────────────────────────────
 
 /** New Joiners — Active/Grace + start_date_v2 in period */
 export function newJoinersFilters(start: string, end: string): HubSpotFilter[][] {
   const gteF: HubSpotFilter = { propertyName: "start_date_v2", operator: "GTE", value: toEpochMs(start) };
   const lteF: HubSpotFilter = { propertyName: "start_date_v2", operator: "LTE", value: toEpochMs(end, true) };
-  return [
-    [ACTIVE, gteF, lteF],
-    [GRACE,  gteF, lteF],
-  ];
+  return [[ACTIVE, gteF, lteF], [GRACE, gteF, lteF]];
 }
 
 /** New Primary Joiners */
 export function newJoinersPrimaryFilters(start: string, end: string): HubSpotFilter[][] {
   const gteF: HubSpotFilter = { propertyName: "start_date_v2", operator: "GTE", value: toEpochMs(start) };
   const lteF: HubSpotFilter = { propertyName: "start_date_v2", operator: "LTE", value: toEpochMs(end, true) };
-  return [
-    [ACTIVE, PRIMARY, gteF, lteF],
-    [GRACE,  PRIMARY, gteF, lteF],
-  ];
+  return [[ACTIVE, PRIMARY, gteF, lteF], [GRACE, PRIMARY, gteF, lteF]];
 }
 
-/** New Secondary Joiners */
-export function newJoinersSecondaryFilters(start: string, end: string): HubSpotFilter[][] {
+/** New Spouse Joiners */
+export function newJoinersSpouseFilters(start: string, end: string): HubSpotFilter[][] {
   const gteF: HubSpotFilter = { propertyName: "start_date_v2", operator: "GTE", value: toEpochMs(start) };
   const lteF: HubSpotFilter = { propertyName: "start_date_v2", operator: "LTE", value: toEpochMs(end, true) };
-  return [
-    [ACTIVE, SPOUSE,  gteF, lteF],
-    [ACTIVE, PARTNER, gteF, lteF],
-    [GRACE,  SPOUSE,  gteF, lteF],
-    [GRACE,  PARTNER, gteF, lteF],
-  ];
+  return [[ACTIVE, SPOUSE, gteF, lteF], [GRACE, SPOUSE, gteF, lteF]];
 }
 
-/** Churned — Inactive (all 3 statuses) with membership_inactive_date in period */
+/** New Business Partner Joiners */
+export function newJoinersPartnerFilters(start: string, end: string): HubSpotFilter[][] {
+  const gteF: HubSpotFilter = { propertyName: "start_date_v2", operator: "GTE", value: toEpochMs(start) };
+  const lteF: HubSpotFilter = { propertyName: "start_date_v2", operator: "LTE", value: toEpochMs(end, true) };
+  return [[ACTIVE, PARTNER, gteF, lteF], [GRACE, PARTNER, gteF, lteF]];
+}
+
+/** Churned in period — all 3 inactive statuses + membership_inactive_date in period */
 export function churnedFilters(start: string, end: string): HubSpotFilter[][] {
   const gteF: HubSpotFilter = { propertyName: "membership_inactive_date", operator: "GTE", value: toEpochMs(start) };
   const lteF: HubSpotFilter = { propertyName: "membership_inactive_date", operator: "LTE", value: toEpochMs(end, true) };
@@ -112,7 +154,7 @@ export function churnedFilters(start: string, end: string): HubSpotFilter[][] {
   ];
 }
 
-/** Actual Renewals — actual_renewal_date in period */
+/** Actual Renewals in period */
 export function renewalActualFilters(start: string, end: string): HubSpotFilter[] {
   return [
     { propertyName: "actual_renewal_date", operator: "GTE", value: toEpochMs(start) },
@@ -124,7 +166,7 @@ export function renewalActualMultiFilters(start: string, end: string): HubSpotFi
   return [renewalActualFilters(start, end)];
 }
 
-/** Eligible Renewals (past) — expected_renewal_date in period, Primary, any status */
+/** Expected Renewals (past) — Primary, any status, expected_renewal_date in period */
 export function eligibleRenewalFilters(start: string, end: string): HubSpotFilter[] {
   return [
     PRIMARY,
@@ -133,30 +175,28 @@ export function eligibleRenewalFilters(start: string, end: string): HubSpotFilte
   ];
 }
 
-/** Eligible Renewals (current) — Active/Grace + Primary + expected_renewal_date in period */
+/** Expected Renewals (current/future) — Active/Grace + Primary + expected_renewal_date in period */
 export function eligibleRenewalActiveFilters(start: string, end: string): HubSpotFilter[][] {
   const gteF: HubSpotFilter = { propertyName: "expected_renewal_date", operator: "GTE", value: toEpochMs(start) };
   const lteF: HubSpotFilter = { propertyName: "expected_renewal_date", operator: "LTE", value: toEpochMs(end, true) };
-  return [
-    [ACTIVE, PRIMARY, gteF, lteF],
-    [GRACE,  PRIMARY, gteF, lteF],
-  ];
+  return [[ACTIVE, PRIMARY, gteF, lteF], [GRACE, PRIMARY, gteF, lteF]];
 }
 
-/** Refunded — status = Inactive – Refunded, in period by expected_renewal_date */
+/** Refunded in period — Inactive – Refunded + membership_inactive_date in period */
 export function refundedFilters(start: string, end: string): HubSpotFilter[] {
   return [
     { propertyName: "status", operator: "EQ", value: "Inactive – Refunded" },
-    { propertyName: "expected_renewal_date", operator: "GTE", value: toEpochMs(start) },
-    { propertyName: "expected_renewal_date", operator: "LTE", value: toEpochMs(end, true) },
+    { propertyName: "membership_inactive_date", operator: "GTE", value: toEpochMs(start) },
+    { propertyName: "membership_inactive_date", operator: "LTE", value: toEpochMs(end, true) },
   ];
 }
 
-/** Has Acquired a Business — owners_circle = true + Active/Grace */
-export function acquiredBusinessFilters(): HubSpotFilter[][] {
+/** Cancellations in period — access_revoked = true + revocation_date in period */
+export function cancellationsFilters(start: string, end: string): HubSpotFilter[] {
   return [
-    [ACTIVE, { propertyName: "owners_circle", operator: "EQ", value: "true" }],
-    [GRACE,  { propertyName: "owners_circle", operator: "EQ", value: "true" }],
+    { propertyName: "access_revoked", operator: "EQ", value: "true" },
+    { propertyName: "revocation_date", operator: "GTE", value: toEpochMs(start) },
+    { propertyName: "revocation_date", operator: "LTE", value: toEpochMs(end, true) },
   ];
 }
 
@@ -174,5 +214,6 @@ export const CONTACT_PROPERTIES = [
   "renewal_price",
   "revocation_date",
   "membership_inactive_date",
+  "access_revoked",
   "type",
 ];
