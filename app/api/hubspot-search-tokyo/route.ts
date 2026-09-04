@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { CONTACT_PROPERTIES } from "@/lib/tokyo-filters";
 
-const HUBSPOT_BASE = "https://api.hubapi.com/crm/v3/objects/contacts/search";
+// Membership custom object in portal 51278247 (objectTypeId: 2-61595094)
+const HUBSPOT_BASE = "https://api.hubapi.com/crm/v3/objects/2-61595094/search";
 
 const ALLOWED_OPERATORS = new Set([
   "EQ", "NEQ", "LT", "LTE", "GT", "GTE",

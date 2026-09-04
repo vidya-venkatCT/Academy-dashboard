@@ -186,13 +186,11 @@ function fmtDate(v: string | null | undefined): string {
 }
 
 function fmtName(c: Contact): string {
-  const f = c.properties.firstname ?? "";
-  const l = c.properties.lastname ?? "";
-  return [f, l].filter(Boolean).join(" ") || (c.properties.email ?? c.id);
+  return c.properties.member_name?.trim() || c.properties.bdrm_login_email || c.id;
 }
 
 function hubspotUrl(id: string): string {
-  return `https://app.hubspot.com/contacts/${PORTAL_ID}/record/0-1/${id}`;
+  return `https://app.hubspot.com/contacts/${PORTAL_ID}/record/2-61595094/${id}`;
 }
 
 function csvEscape(v: string | null | undefined): string {
@@ -332,23 +330,30 @@ function dateSort(prop: string): (c: Contact) => string {
 }
 
 function tableColumns(view: ViewKey): TableCol[] {
-  if (view === "churned") {
-    return [
-      { label: "Name",       value: fmtName },
-      { label: "Email",      value: (c) => c.properties.email ?? "—" },
-      { label: "Date Joined",value: (c) => fmtDate(c.properties.temp_smb_boardroom_date_joined), sortKey: dateSort("temp_smb_boardroom_date_joined") },
-      { label: "Expiration", value: (c) => fmtDate(c.properties.temp_smb_boardroom_expiration_date), sortKey: dateSort("temp_smb_boardroom_expiration_date") },
-      { label: "Revoked",    value: (c) => c.properties.temp_smbb_access_revoked ?? "—" },
-    ];
+  const nameCol:     TableCol = { label: "Name",            value: fmtName };
+  const emailCol:    TableCol = { label: "Email",           value: (c) => c.properties.bdrm_login_email ?? "—" };
+  const statusCol:   TableCol = { label: "Status",          value: (c) => c.properties.status ?? "—" };
+  const typeCol:     TableCol = { label: "Type",            value: (c) => c.properties.membership_type ?? "—" };
+  const joinCol:     TableCol = { label: "Date Joined",     value: (c) => fmtDate(c.properties.start_date_v2),        sortKey: dateSort("start_date_v2") };
+  const renewalCol:  TableCol = { label: "Renewal Date",    value: (c) => fmtDate(c.properties.actual_renewal_date),  sortKey: dateSort("actual_renewal_date") };
+  const eligibleCol: TableCol = { label: "Expected Renewal",value: (c) => fmtDate(c.properties.expected_renewal_date),sortKey: dateSort("expected_renewal_date") };
+  const priceCol:    TableCol = { label: "Price",           value: (c) => fmtPrice(c.properties.renewal_price) };
+  const revokedCol:  TableCol = { label: "Revoked Date",    value: (c) => fmtDate(c.properties.revocation_date),      sortKey: dateSort("revocation_date") };
+
+  switch (view) {
+    case "churned":
+      return [nameCol, emailCol, statusCol, joinCol, revokedCol];
+    case "renewal":
+      return [nameCol, emailCol, statusCol, typeCol, renewalCol, priceCol];
+    case "eligible":
+      return [nameCol, emailCol, statusCol, typeCol, eligibleCol, priceCol];
+    case "refunded":
+      return [nameCol, emailCol, statusCol, typeCol, eligibleCol, priceCol];
+    case "acquired":
+      return [nameCol, emailCol, statusCol, typeCol, joinCol];
+    default:
+      return [nameCol, emailCol, statusCol, typeCol, joinCol, eligibleCol];
   }
-  return [
-    { label: "Name",       value: fmtName },
-    { label: "Email",      value: (c) => c.properties.email ?? "—" },
-    { label: "Active",     value: (c) => c.properties.active_boardroom_member ?? "—" },
-    { label: "Spouse/Partner", value: (c) => c.properties.spouse__partner ?? "—" },
-    { label: "Date Joined",value: (c) => fmtDate(c.properties.temp_smb_boardroom_date_joined), sortKey: dateSort("temp_smb_boardroom_date_joined") },
-    { label: "Expiration", value: (c) => fmtDate(c.properties.temp_smb_boardroom_expiration_date), sortKey: dateSort("temp_smb_boardroom_expiration_date") },
-  ];
 }
 
 const VIEW_TITLES: Record<ViewKey, string> = {
@@ -730,7 +735,7 @@ export default function DashboardPage() {
       { key: "eligible",  title: "Eligible Renewals",     snapshot: false },
       { key: "refunded",  title: "Refunded",              snapshot: false },
     ];
-    const headers = ["Segment","Period / Month","HubSpot ID","HubSpot URL","First Name","Last Name","Email","Membership Status","Membership Type","Date Joined","Last Renewal","Expected Renewal","Owner Circle"];
+    const headers = ["Segment","Period / Month","HubSpot ID","HubSpot URL","Name","Email","Status","Membership Type","Date Joined","Actual Renewal","Expected Renewal","Owners Circle","Renewal Price"];
     const allLines: string[] = [headers.map(csvEscape).join(",")];
 
     for (const v of views) {
@@ -747,10 +752,10 @@ export default function DashboardPage() {
         for (const c of data.results) {
           allLines.push([
             v.title, v.snapshot ? "(all time)" : range.label, c.id, hubspotUrl(c.id),
-            c.properties.firstname ?? "", c.properties.lastname ?? "", c.properties.email ?? "",
-            c.properties.membership_create_date ?? "", c.properties.actual_renewal_date ?? "", c.properties.expected_renewal_date ?? "",
-            c.properties.membership_status ?? "", c.properties.membership_type ?? "",
-            c.properties.owner_circle ?? "",
+            c.properties.member_name ?? "", c.properties.bdrm_login_email ?? "",
+            c.properties.status ?? "", c.properties.membership_type ?? "",
+            c.properties.start_date_v2 ?? "", c.properties.actual_renewal_date ?? "", c.properties.expected_renewal_date ?? "",
+            c.properties.owners_circle ?? "", c.properties.renewal_price ?? "",
           ].map(csvEscape).join(","));
         }
       } while (after);
@@ -849,10 +854,10 @@ export default function DashboardPage() {
               Membership Snapshot · All Time
             </p>
             <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "24px" })}>
-              <StatCard title="Current Members" subtitle="active_boardroom_member = true" badge="All" badgeColor="green" count={state.counts.current} isLoading={loading.current} active={state.activeView === "current"} onClick={() => setView("current")} />
+              <StatCard title="Current Members" subtitle="status = Active or Grace" badge="All" badgeColor="green" count={state.counts.current} isLoading={loading.current} active={state.activeView === "current"} onClick={() => setView("current")} />
               <StatCard title="Current Primary" subtitle="Primary members only" badge="Primary" badgeColor="cyan" count={state.counts.primary} isLoading={loading.primary} active={state.activeView === "primary"} onClick={() => setView("primary")} />
               <StatCard title="Current Secondary" subtitle="Under a primary member" badge="Secondary" badgeColor="purple" count={state.counts.secondary} isLoading={loading.secondary} active={state.activeView === "secondary"} onClick={() => setView("secondary")} />
-              <StatCard title="Has Acquired a Business" subtitle="No property configured" badge="Acquired" badgeColor="orange" count={state.counts.acquired} isLoading={loading.acquired} active={state.activeView === "acquired"} onClick={() => setView("acquired")} />
+              <StatCard title="Has Acquired a Business" subtitle="owners_circle = true" badge="Acquired" badgeColor="orange" count={state.counts.acquired} isLoading={loading.acquired} active={state.activeView === "acquired"} onClick={() => setView("acquired")} />
             </div>
 
             <PeriodBar state={state} customTempStart={customTempStart} customTempEnd={customTempEnd}
@@ -890,7 +895,7 @@ export default function DashboardPage() {
               Membership Snapshot · All Time
             </p>
             <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "28px" })}>
-              <StatCard title="Current Members" subtitle="active_boardroom_member = true" badge="All" badgeColor="green" count={state.counts.current} isLoading={loading.current} active={false} clickable={false} />
+              <StatCard title="Current Members" subtitle="status = Active or Grace" badge="All" badgeColor="green" count={state.counts.current} isLoading={loading.current} active={false} clickable={false} />
               <StatCard title="Current Primary" subtitle="Primary members only" badge="Primary" badgeColor="cyan" count={state.counts.primary} isLoading={loading.primary} active={false} clickable={false} />
               <StatCard title="Current Secondary" subtitle="Under a primary member" badge="Secondary" badgeColor="purple" count={state.counts.secondary} isLoading={loading.secondary} active={false} clickable={false} />
             </div>
@@ -1020,11 +1025,11 @@ export default function DashboardPage() {
                 </thead>
                 <tbody>
                   {[
-                    ["New Primary",       "Members whose membership_create_date falls in the period — membership_type = primary"],
-                    ["New Secondary",     "Members whose membership_create_date falls in the period — membership_type = secondary (spouse or business partner)"],
+                    ["New Primary",       "Members whose start_date_v2 falls in the period — membership_type = Primary"],
+                    ["New Secondary",     "Members whose start_date_v2 falls in the period — membership_type = Secondary (Spouse or Business Partner)"],
                     ["Total New Members", "New Primary + New Secondary"],
-                    ["Churned",           "Members where membership_status = Inactive"],
-                    ["Refunded",          "Members where membership_status = Inactive - refunded, expected_renewal_date in the period"],
+                    ["Churned",           "Members where status = Expired, Inactive – Delinquent, or Inactive – Refunded"],
+                    ["Refunded",          "Members where status = Inactive – Refunded, expected_renewal_date in the period"],
                     ["Actual Renewals",   "Members where actual_renewal_date falls in the period"],
                     ["Eligible Renewals", "Primary members where expected_renewal_date falls in the period"],
                     ["Renewal Rate",      "Actual Renewals ÷ (Eligible + Actual Renewals) × 100"],
@@ -1043,21 +1048,23 @@ export default function DashboardPage() {
               {
                 title: "New Primary Joiners",
                 rows: [
-                  ["membership_create_date", "falls within the selected period"],
-                  ["membership_type", "primary"],
+                  ["start_date_v2", "falls within the selected period"],
+                  ["membership_type", "Primary"],
+                  ["status", "Active or Grace"],
                 ],
               },
               {
                 title: "New Secondary Joiners",
                 rows: [
-                  ["membership_create_date", "falls within the selected period"],
-                  ["membership_type", "secondary - spouse OR secondary - business partner"],
+                  ["start_date_v2", "falls within the selected period"],
+                  ["membership_type", "Secondary - Spouse OR Secondary - Business Partner"],
+                  ["status", "Active or Grace"],
                 ],
               },
               {
                 title: "Churned",
                 rows: [
-                  ["membership_status", "Inactive"],
+                  ["status", "Expired OR Inactive – Delinquent OR Inactive – Refunded"],
                 ],
               },
               {
@@ -1069,7 +1076,7 @@ export default function DashboardPage() {
               {
                 title: "Refunded",
                 rows: [
-                  ["membership_status", "Inactive - refunded"],
+                  ["status", "Inactive – Refunded"],
                   ["expected_renewal_date", "falls within the selected period"],
                 ],
               },
@@ -1106,8 +1113,8 @@ export default function DashboardPage() {
                   </thead>
                   <tbody>
                     {[
-                      ["membership_type",       "primary", "primary"],
-                      ["membership_status",     "any (Active, Inactive, etc.)", "Active or grace"],
+                      ["membership_type",       "Primary", "Primary"],
+                      ["status",               "any (Active, Inactive, etc.)", "Active or Grace"],
                       ["expected_renewal_date", "falls within the period", "falls within the period"],
                     ].map(([condition, past, future], i, arr) => (
                       <tr key={i} style={S({ borderBottom: i < arr.length - 1 ? "1px solid #f0f0ee" : "none" })}>
@@ -1120,7 +1127,7 @@ export default function DashboardPage() {
                 </table>
               </div>
               <p style={S({ margin: "6px 0 0", fontSize: "12px", color: "#b45309", background: "#fef9c3", padding: "6px 10px", borderRadius: "6px" })}>
-                For past periods, all primary members with an expected_renewal_date in range are counted regardless of current membership_status (so lapsed members who were eligible are included). For current/future periods only Active or grace members are included.
+                For past periods, all primary members with an expected_renewal_date in range are counted regardless of current status (so lapsed members who were eligible are included). For current/future periods only Active or Grace members are included.
               </p>
             </div>
 
@@ -1136,12 +1143,12 @@ export default function DashboardPage() {
                 </thead>
                 <tbody>
                   {[
-                    ["membership_status",       "Active · grace · Inactive · Inactive - refunded"],
-                    ["membership_type",         "primary · secondary - spouse · secondary - business partner"],
-                    ["membership_create_date",  "Date the membership was created (used for New Joiners)"],
+                    ["status",                 "Active · Grace · Expired · Inactive – Delinquent · Inactive – Refunded"],
+                    ["membership_type",         "Primary · Secondary - Spouse · Secondary - Business Partner"],
+                    ["start_date_v2",           "Date the membership started (used for New Joiners)"],
                     ["actual_renewal_date",     "Date of the most recent actual renewal (used for Renewals)"],
                     ["expected_renewal_date",   "Date the membership is expected to renew (used for Eligible Renewals)"],
-                    ["owner_circle",            "true / Yes — member has acquired a business"],
+                    ["owners_circle",           "true — member has acquired a business"],
                     ["CC Renewal 2026",                 "Curated list of members targeted for 2026 renewal outreach"],
                   ].map(([tag, meaning], i, arr) => (
                     <tr key={tag} style={S({ borderBottom: i < arr.length - 1 ? "1px solid #f0f0ee" : "none", background: i % 2 === 0 ? "#fff" : "#fafaf9" })}>
@@ -1395,7 +1402,7 @@ export default function DashboardPage() {
         {/* Churned data note */}
         {state.activeView === "churned" && (
           <div style={S({ background: "#fef9c3", border: "1px solid #fde68a", borderRadius: "8px", padding: "12px 16px", marginBottom: "16px", fontSize: "13px", color: "#854d0e" })}>
-            <strong>Note:</strong> Churned members are filtered by membership_status = Inactive. This view shows all inactive members regardless of period.
+            <strong>Note:</strong> Churned members are filtered by status = Expired, Inactive – Delinquent, or Inactive – Refunded. This view shows all inactive members regardless of period.
           </div>
         )}
 

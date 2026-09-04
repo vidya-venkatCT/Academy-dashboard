@@ -20,114 +20,145 @@ function toEpochMs(dateStr: string, endOfDay = false): string {
   return String(new Date(`${dateStr}${suffix}`).getTime());
 }
 
-const ACTIVE: HubSpotFilter = { propertyName: "active_boardroom_member", operator: "EQ", value: "true" };
+// No type filter — portal 51278247 contains only Tokyo memberships
+// (both "Boardroom" and "Academy" product types are used here)
+const ACTIVE:  HubSpotFilter = { propertyName: "status", operator: "EQ", value: "Active" };
+const GRACE:   HubSpotFilter = { propertyName: "status", operator: "EQ", value: "Grace" };
+const PRIMARY: HubSpotFilter = { propertyName: "membership_type", operator: "EQ", value: "Primary" };
+const SPOUSE:  HubSpotFilter = { propertyName: "membership_type", operator: "EQ", value: "Secondary - Spouse" };
+const PARTNER: HubSpotFilter = { propertyName: "membership_type", operator: "EQ", value: "Secondary - Business Partner" };
 
-// Returns a filter that matches nothing (for views where no HubSpot property exists yet)
-function impossibleFilter(): HubSpotFilter[] {
-  return [{ propertyName: "temp_smb_boardroom_date_joined", operator: "GTE", value: "9999999999999" }];
-}
+// ─── Snapshot views ───────────────────────────────────────────────────────────
 
-// ─── Snapshot views ─────────────────────────────────────────────────────────
-
-export function currentAllFilters(): HubSpotFilter[] {
-  return [ACTIVE];
-}
-
-export function primaryBaseFilters(): HubSpotFilter[] {
+/** Current Members — status Active OR Grace */
+export function currentAllFilters(): HubSpotFilter[][] {
   return [
-    ACTIVE,
-    { propertyName: "spouse__partner", operator: "EQ", value: "0" },
+    [ACTIVE],
+    [GRACE],
   ];
 }
 
-export function currentSecondaryFilters(): HubSpotFilter[] {
+/** Primary — Active/Grace + membership_type = Primary */
+export function primaryBaseFilters(): HubSpotFilter[][] {
   return [
-    ACTIVE,
-    { propertyName: "spouse__partner", operator: "GT", value: "0" },
+    [ACTIVE, PRIMARY],
+    [GRACE,  PRIMARY],
   ];
 }
 
-// ─── Period views ────────────────────────────────────────────────────────────
-
-export function newJoinersFilters(start: string, end: string): HubSpotFilter[] {
+/** Secondary — Active/Grace + Spouse OR Business Partner */
+export function currentSecondaryFilters(): HubSpotFilter[][] {
   return [
-    ACTIVE,
-    { propertyName: "temp_smb_boardroom_date_joined", operator: "GTE", value: toEpochMs(start) },
-    { propertyName: "temp_smb_boardroom_date_joined", operator: "LTE", value: toEpochMs(end, true) },
+    [ACTIVE, SPOUSE],
+    [ACTIVE, PARTNER],
+    [GRACE,  SPOUSE],
+    [GRACE,  PARTNER],
   ];
 }
 
-export function newJoinersPrimaryFilters(start: string, end: string): HubSpotFilter[] {
+// ─── Period views ─────────────────────────────────────────────────────────────
+
+/** New Joiners — Active/Grace + start_date_v2 in period */
+export function newJoinersFilters(start: string, end: string): HubSpotFilter[][] {
+  const gteF: HubSpotFilter = { propertyName: "start_date_v2", operator: "GTE", value: toEpochMs(start) };
+  const lteF: HubSpotFilter = { propertyName: "start_date_v2", operator: "LTE", value: toEpochMs(end, true) };
   return [
-    ACTIVE,
-    { propertyName: "spouse__partner",                operator: "EQ",  value: "0" },
-    { propertyName: "temp_smb_boardroom_date_joined", operator: "GTE", value: toEpochMs(start) },
-    { propertyName: "temp_smb_boardroom_date_joined", operator: "LTE", value: toEpochMs(end, true) },
+    [ACTIVE, gteF, lteF],
+    [GRACE,  gteF, lteF],
   ];
 }
 
-export function newJoinersSecondaryFilters(start: string, end: string): HubSpotFilter[] {
+/** New Primary Joiners */
+export function newJoinersPrimaryFilters(start: string, end: string): HubSpotFilter[][] {
+  const gteF: HubSpotFilter = { propertyName: "start_date_v2", operator: "GTE", value: toEpochMs(start) };
+  const lteF: HubSpotFilter = { propertyName: "start_date_v2", operator: "LTE", value: toEpochMs(end, true) };
   return [
-    ACTIVE,
-    { propertyName: "spouse__partner",                operator: "GT",  value: "0" },
-    { propertyName: "temp_smb_boardroom_date_joined", operator: "GTE", value: toEpochMs(start) },
-    { propertyName: "temp_smb_boardroom_date_joined", operator: "LTE", value: toEpochMs(end, true) },
+    [ACTIVE, PRIMARY, gteF, lteF],
+    [GRACE,  PRIMARY, gteF, lteF],
   ];
 }
 
-/** Churned — temp_smbb_access_revoked = true (period ignored; no revocation date property) */
-export function churnedFilters(_start: string, _end: string): HubSpotFilter[] {
-  return [{ propertyName: "temp_smbb_access_revoked", operator: "EQ", value: "true" }];
+/** New Secondary Joiners */
+export function newJoinersSecondaryFilters(start: string, end: string): HubSpotFilter[][] {
+  const gteF: HubSpotFilter = { propertyName: "start_date_v2", operator: "GTE", value: toEpochMs(start) };
+  const lteF: HubSpotFilter = { propertyName: "start_date_v2", operator: "LTE", value: toEpochMs(end, true) };
+  return [
+    [ACTIVE, SPOUSE,  gteF, lteF],
+    [ACTIVE, PARTNER, gteF, lteF],
+    [GRACE,  SPOUSE,  gteF, lteF],
+    [GRACE,  PARTNER, gteF, lteF],
+  ];
 }
 
-/** Actual Renewals — no renewal date property found in portal; always returns 0 */
-export function renewalActualFilters(_start: string, _end: string): HubSpotFilter[] {
-  return impossibleFilter();
+/** Churned — Inactive (all 3 statuses: Expired, Delinquent, Refunded) */
+export function churnedFilters(_start: string, _end: string): HubSpotFilter[][] {
+  return [
+    [{ propertyName: "status", operator: "EQ", value: "Expired" }],
+    [{ propertyName: "status", operator: "EQ", value: "Inactive – Delinquent" }],
+    [{ propertyName: "status", operator: "EQ", value: "Inactive – Refunded" }],
+  ];
+}
+
+/** Actual Renewals — actual_renewal_date in period */
+export function renewalActualFilters(start: string, end: string): HubSpotFilter[] {
+  return [
+    { propertyName: "actual_renewal_date", operator: "GTE", value: toEpochMs(start) },
+    { propertyName: "actual_renewal_date", operator: "LTE", value: toEpochMs(end, true) },
+  ];
 }
 
 export function renewalActualMultiFilters(start: string, end: string): HubSpotFilter[][] {
   return [renewalActualFilters(start, end)];
 }
 
-/** Eligible Renewals (past) — expiration date in period (any status) */
+/** Eligible Renewals (past) — expected_renewal_date in period, Primary, any status */
 export function eligibleRenewalFilters(start: string, end: string): HubSpotFilter[] {
   return [
-    { propertyName: "temp_smb_boardroom_expiration_date", operator: "GTE", value: toEpochMs(start) },
-    { propertyName: "temp_smb_boardroom_expiration_date", operator: "LTE", value: toEpochMs(end, true) },
+    PRIMARY,
+    { propertyName: "expected_renewal_date", operator: "GTE", value: toEpochMs(start) },
+    { propertyName: "expected_renewal_date", operator: "LTE", value: toEpochMs(end, true) },
   ];
 }
 
-/** Eligible Renewals (current/future) — active + expiration date in period */
-export function eligibleRenewalActiveFilters(start: string, end: string): HubSpotFilter[] {
+/** Eligible Renewals (current) — Active/Grace + Primary + expected_renewal_date in period */
+export function eligibleRenewalActiveFilters(start: string, end: string): HubSpotFilter[][] {
+  const gteF: HubSpotFilter = { propertyName: "expected_renewal_date", operator: "GTE", value: toEpochMs(start) };
+  const lteF: HubSpotFilter = { propertyName: "expected_renewal_date", operator: "LTE", value: toEpochMs(end, true) };
   return [
-    ACTIVE,
-    { propertyName: "temp_smb_boardroom_expiration_date", operator: "GTE", value: toEpochMs(start) },
-    { propertyName: "temp_smb_boardroom_expiration_date", operator: "LTE", value: toEpochMs(end, true) },
+    [ACTIVE, PRIMARY, gteF, lteF],
+    [GRACE,  PRIMARY, gteF, lteF],
   ];
 }
 
-/** Refunded — no property found; always returns 0 */
-export function refundedFilters(_start: string, _end: string): HubSpotFilter[] {
-  return impossibleFilter();
+/** Refunded — status = Inactive – Refunded, in period by expected_renewal_date */
+export function refundedFilters(start: string, end: string): HubSpotFilter[] {
+  return [
+    { propertyName: "status", operator: "EQ", value: "Inactive – Refunded" },
+    { propertyName: "expected_renewal_date", operator: "GTE", value: toEpochMs(start) },
+    { propertyName: "expected_renewal_date", operator: "LTE", value: toEpochMs(end, true) },
+  ];
 }
 
-/** Acquired a Business — no property found; always returns 0 */
+/** Has Acquired a Business — owners_circle = true + Active/Grace */
 export function acquiredBusinessFilters(): HubSpotFilter[][] {
-  return [impossibleFilter()];
+  return [
+    [ACTIVE, { propertyName: "owners_circle", operator: "EQ", value: "true" }],
+    [GRACE,  { propertyName: "owners_circle", operator: "EQ", value: "true" }],
+  ];
 }
 
-// ─── Properties to fetch ────────────────────────────────────────────────────
+// ─── Properties to fetch ─────────────────────────────────────────────────────
 
 export const CONTACT_PROPERTIES = [
-  "firstname",
-  "lastname",
-  "email",
-  "active_boardroom_member",
-  "active_academy_member",
-  "spouse__partner",
-  "temp_smb_boardroom_date_joined",
-  "temp_smb_boardroom_expiration_date",
-  "temp_smbb_access_revoked",
-  "temp_smbb_council_status",
-  "lastmodifieddate",
+  "member_name",
+  "bdrm_login_email",
+  "status",
+  "membership_type",
+  "start_date_v2",
+  "actual_renewal_date",
+  "expected_renewal_date",
+  "owners_circle",
+  "renewal_price",
+  "revocation_date",
+  "type",
 ];
