@@ -515,6 +515,7 @@ export default function DashboardPage() {
   // ── Contact list sort state ───────────────────────────────────────────────
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [excludeCT, setExcludeCT] = useState(false);
 
   // ── Eligible Renewals breakdown tab state ─────────────────────────────────
   const [eligBreakdownContacts, setEligBreakdownContacts] = useState<Contact[]>([]);
@@ -861,13 +862,20 @@ export default function DashboardPage() {
   const activeTotal = state.totals[state.activeView];
   const cols = tableColumns(state.activeView);
 
+  function isCTEmail(email: string | null | undefined): boolean {
+    if (!email) return false;
+    const e = email.toLowerCase();
+    return e.includes("@contrarianthink.com") || e.includes("@bizscout.com") || e.includes("test");
+  }
+
   // Sort the visible rows client-side.
   // Date columns use sortKey (epoch ms) for numeric sort; price also sorts numerically.
   const sortedRows = (() => {
-    if (!sortCol) return activeRows;
+    const rows = excludeCT ? activeRows.filter((c) => !isCTEmail(c.properties.bdrm_login_email)) : activeRows;
+    if (!sortCol) return rows;
     const col = cols.find((c) => c.label === sortCol);
-    if (!col) return activeRows;
-    return [...activeRows].sort((a, b) => {
+    if (!col) return rows;
+    return [...rows].sort((a, b) => {
       // Numeric sort for price and date columns
       if (sortCol === "Renewal Price" || col.sortKey) {
         const av = col.sortKey ? col.sortKey(a) : col.value(a);
@@ -1539,13 +1547,21 @@ export default function DashboardPage() {
               <span style={S({ fontSize: "14px", fontWeight: 600 })}>{VIEW_TITLES[state.activeView]}</span>
               {activeTotal !== null && (
                 <span style={S({ fontSize: "13px", color: "#666", marginLeft: "8px" })}>
-                  {activeRows.length.toLocaleString()} of {activeTotal.toLocaleString()} shown
+                  {sortedRows.length.toLocaleString()}{activeRows.length < activeTotal ? ` of ${activeTotal.toLocaleString()} loaded` : ` total`}
+                  {excludeCT && sortedRows.length < activeRows.length ? ` · ${activeRows.length - sortedRows.length} CT excluded` : ""}
                 </span>
               )}
             </div>
-            <button onClick={exportViewCSV} style={S({ background: "#fff", border: "1px solid #e6e6e3", borderRadius: "6px", padding: "7px 12px", fontSize: "13px", fontWeight: 500, cursor: "pointer", color: "#1a1a1a" })}>
-              Export this view (CSV)
-            </button>
+            <div style={S({ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" })}>
+              <label style={S({ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "13px", color: "#444", userSelect: "none" })}>
+                <input type="checkbox" checked={excludeCT} onChange={(e) => setExcludeCT(e.target.checked)}
+                  style={S({ width: "14px", height: "14px", cursor: "pointer", accentColor: "#1a1a1a" })} />
+                Exclude CT team
+              </label>
+              <button onClick={exportViewCSV} style={S({ background: "#fff", border: "1px solid #e6e6e3", borderRadius: "6px", padding: "7px 12px", fontSize: "13px", fontWeight: 500, cursor: "pointer", color: "#1a1a1a" })}>
+                Export this view (CSV)
+              </button>
+            </div>
           </div>
 
           <div style={S({ overflowX: "auto" })}>
