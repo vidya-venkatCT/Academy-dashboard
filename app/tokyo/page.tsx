@@ -952,28 +952,16 @@ export default function DashboardPage() {
               Membership Snapshot · All Time
             </p>
 
-            {/* Row 1: Lifetime */}
-            <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "12px" })}>
+            {/* Snapshot grid — 5 cards per row */}
+            <div style={S({ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "12px", marginBottom: "28px" })}>
               <StatCard title="Lifetime Members" subtitle="All members ever" badge="Lifetime" badgeColor="black" count={state.counts.lifetime} isLoading={loading.lifetime} active={state.activeView === "lifetime"} onClick={() => setView("lifetime")} />
-            </div>
-
-            {/* Row 2: Current Active breakdown */}
-            <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px", marginBottom: "12px" })}>
               <StatCard title="Current Active" subtitle="Total Active or Grace" badge="All" badgeColor="green" count={state.counts.current} isLoading={loading.current} active={state.activeView === "current"} onClick={() => setView("current")} />
               <StatCard title="Primary" subtitle="Active/Grace — Primary" badge="Primary" badgeColor="cyan" count={state.counts.primary} isLoading={loading.primary} active={state.activeView === "primary"} onClick={() => setView("primary")} />
-              <StatCard title="Spouse" subtitle="Active/Grace — Secondary Spouse" badge="Spouse" badgeColor="purple" count={state.counts.spouse} isLoading={loading.spouse} active={state.activeView === "spouse"} onClick={() => setView("spouse")} />
-              <StatCard title="Business Partner" subtitle="Active/Grace — Secondary Partner" badge="Partner" badgeColor="indigo" count={state.counts.partner} isLoading={loading.partner} active={state.activeView === "partner"} onClick={() => setView("partner")} />
-            </div>
-
-            {/* Row 3: Business Acquisitions (Academy only) */}
-            {productType === "Academy" && (
-              <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px", marginBottom: "12px" })}>
+              <StatCard title="Spouse" subtitle="Active/Grace — Spouse" badge="Spouse" badgeColor="purple" count={state.counts.spouse} isLoading={loading.spouse} active={state.activeView === "spouse"} onClick={() => setView("spouse")} />
+              <StatCard title="Business Partner" subtitle="Active/Grace — Partner" badge="Partner" badgeColor="indigo" count={state.counts.partner} isLoading={loading.partner} active={state.activeView === "partner"} onClick={() => setView("partner")} />
+              {productType === "Academy" && (
                 <StatCard title="Business Acquisitions" subtitle="owners_circle = true" badge="Acquired" badgeColor="orange" count={state.counts.acquired} isLoading={loading.acquired} active={state.activeView === "acquired"} onClick={() => setView("acquired")} />
-              </div>
-            )}
-
-            {/* Row 4: Churned / Renewals / Refunds / Cancellations all-time */}
-            <div style={S({ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px", marginBottom: "28px" })}>
+              )}
               <StatCard title="Churned" subtitle="All inactive statuses ever" badge="All Time" badgeColor="red" count={state.counts.churnedAll} isLoading={loading.churnedAll} active={state.activeView === "churnedAll"} onClick={() => setView("churnedAll")} />
               <StatCard title="Actual Renewals" subtitle="Has an actual renewal date" badge="All Time" badgeColor="yellow" count={state.counts.renewalAll} isLoading={loading.renewalAll} active={state.activeView === "renewalAll"} onClick={() => setView("renewalAll")} />
               <StatCard title="Refunds" subtitle="Inactive – Refunded ever" badge="All Time" badgeColor="rose" count={state.counts.refundedAll} isLoading={loading.refundedAll} active={state.activeView === "refundedAll"} onClick={() => setView("refundedAll")} />
