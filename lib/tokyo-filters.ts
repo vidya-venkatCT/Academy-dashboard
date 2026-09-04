@@ -101,12 +101,14 @@ export function newJoinersSecondaryFilters(start: string, end: string): HubSpotF
   ];
 }
 
-/** Churned — Inactive (all 3 statuses: Expired, Delinquent, Refunded) */
-export function churnedFilters(_start: string, _end: string): HubSpotFilter[][] {
+/** Churned — Inactive (all 3 statuses) with membership_inactive_date in period */
+export function churnedFilters(start: string, end: string): HubSpotFilter[][] {
+  const gteF: HubSpotFilter = { propertyName: "membership_inactive_date", operator: "GTE", value: toEpochMs(start) };
+  const lteF: HubSpotFilter = { propertyName: "membership_inactive_date", operator: "LTE", value: toEpochMs(end, true) };
   return [
-    [{ propertyName: "status", operator: "EQ", value: "Expired" }],
-    [{ propertyName: "status", operator: "EQ", value: "Inactive – Delinquent" }],
-    [{ propertyName: "status", operator: "EQ", value: "Inactive – Refunded" }],
+    [{ propertyName: "status", operator: "EQ", value: "Expired" },               gteF, lteF],
+    [{ propertyName: "status", operator: "EQ", value: "Inactive – Delinquent" }, gteF, lteF],
+    [{ propertyName: "status", operator: "EQ", value: "Inactive – Refunded" },   gteF, lteF],
   ];
 }
 
@@ -171,5 +173,6 @@ export const CONTACT_PROPERTIES = [
   "owners_circle",
   "renewal_price",
   "revocation_date",
+  "membership_inactive_date",
   "type",
 ];

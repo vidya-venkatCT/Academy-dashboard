@@ -341,11 +341,12 @@ function tableColumns(view: ViewKey): TableCol[] {
   const renewalCol:  TableCol = { label: "Renewal Date",    value: (c) => fmtDate(c.properties.actual_renewal_date),  sortKey: dateSort("actual_renewal_date") };
   const eligibleCol: TableCol = { label: "Expected Renewal",value: (c) => fmtDate(c.properties.expected_renewal_date),sortKey: dateSort("expected_renewal_date") };
   const priceCol:    TableCol = { label: "Price",           value: (c) => fmtPrice(c.properties.renewal_price) };
-  const revokedCol:  TableCol = { label: "Revoked Date",    value: (c) => fmtDate(c.properties.revocation_date),      sortKey: dateSort("revocation_date") };
+  const revokedCol:   TableCol = { label: "Revoked Date",   value: (c) => fmtDate(c.properties.revocation_date),        sortKey: dateSort("revocation_date") };
+  const inactiveCol:  TableCol = { label: "Inactive Date",  value: (c) => fmtDate(c.properties.membership_inactive_date), sortKey: dateSort("membership_inactive_date") };
 
   switch (view) {
     case "churned":
-      return [nameCol, emailCol, statusCol, joinCol, revokedCol];
+      return [nameCol, emailCol, statusCol, typeCol, inactiveCol, joinCol];
     case "renewal":
       return [nameCol, emailCol, statusCol, typeCol, renewalCol, priceCol];
     case "eligible":
@@ -888,7 +889,7 @@ export default function DashboardPage() {
                     : `Joined in ${range.label}`
                 }
                 badge="New" badgeColor="blue" count={state.counts.new} isLoading={loading.new} active={state.activeView === "new"} onClick={() => setView("new")} />
-              <StatCard title="Churned" subtitle={`Revoked in ${range.label}`} badge="Churned" badgeColor="red" count={state.counts.churned} isLoading={loading.churned} active={state.activeView === "churned"} onClick={() => setView("churned")} note="Data tracked from Apr 13, 2026" />
+              <StatCard title="Churned" subtitle={`Became inactive in ${range.label}`} badge="Churned" badgeColor="red" count={state.counts.churned} isLoading={loading.churned} active={state.activeView === "churned"} onClick={() => setView("churned")} />
               <StatCard title="Renewals — Actual" subtitle={`Renewed in ${range.label}`} badge="Renewed" badgeColor="yellow" count={state.counts.renewal} isLoading={loading.renewal} active={state.activeView === "renewal"} onClick={() => setView("renewal")} />
               <StatCard title="Refunded" subtitle={`Expired in ${range.label}`} badge="Refunded" badgeColor="rose" count={state.counts.refunded} isLoading={loading.refunded} active={state.activeView === "refunded"} onClick={() => setView("refunded")} />
             </div>
@@ -1077,7 +1078,8 @@ export default function DashboardPage() {
               {
                 title: "Churned",
                 rows: [
-                  ["status", "Expired OR Inactive – Delinquent OR Inactive – Refunded"],
+                  ["status",                   "Expired OR Inactive – Delinquent OR Inactive – Refunded"],
+                  ["membership_inactive_date",  "falls within the selected period"],
                 ],
               },
               {
@@ -1415,7 +1417,7 @@ export default function DashboardPage() {
         {/* Churned data note */}
         {state.activeView === "churned" && (
           <div style={S({ background: "#fef9c3", border: "1px solid #fde68a", borderRadius: "8px", padding: "12px 16px", marginBottom: "16px", fontSize: "13px", color: "#854d0e" })}>
-            <strong>Note:</strong> Churned members are filtered by status = Expired, Inactive – Delinquent, or Inactive – Refunded. This view shows all inactive members regardless of period.
+            <strong>Note:</strong> Churned members are those whose membership_inactive_date falls within the selected period and whose status is Expired, Inactive – Delinquent, or Inactive – Refunded.
           </div>
         )}
 
