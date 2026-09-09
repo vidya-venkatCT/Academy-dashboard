@@ -2,6 +2,7 @@ export interface HubSpotFilter {
   propertyName: string;
   operator: string;
   value: string;
+  values?: string[];
 }
 
 export type ViewKey =
@@ -35,19 +36,6 @@ const PRIMARY: HubSpotFilter = { propertyName: "membership_type", operator: "EQ"
 const SPOUSE:  HubSpotFilter = { propertyName: "membership_type", operator: "EQ", value: "Secondary - Spouse" };
 const PARTNER: HubSpotFilter = { propertyName: "membership_type", operator: "EQ", value: "Secondary - Business Partner" };
 
-/** Add NOT_CONTAINS_TOKEN exclusions for CT team domains to every filter group (within the 6-filter cap). */
-export function withExcludeCT(groups: HubSpotFilter[][]): HubSpotFilter[][] {
-  const domains = ["contrarianthink", "bizscout"];
-  return groups.map((group) => {
-    let g = [...group];
-    for (const domain of domains) {
-      if (g.length < 6) {
-        g = [...g, { propertyName: "bdrm_login_email", operator: "NOT_CONTAINS_TOKEN", value: domain }];
-      }
-    }
-    return g;
-  });
-}
 
 /** Prepend a type = <value> filter to every filter group (or single-group array). */
 export function withType(
@@ -64,7 +52,7 @@ export function withType(
 
 // ─── Snapshot (all-time) filters ─────────────────────────────────────────────
 
-/** All memberships ever — all 5 status values cover every record */
+/** All memberships ever — 5 status groups cover every record in the system */
 export function lifetimeFilters(): HubSpotFilter[][] {
   return [
     [{ propertyName: "status", operator: "EQ", value: "Active" }],
@@ -122,9 +110,9 @@ export function refundedAllTimeFilters(): HubSpotFilter[] {
   return [{ propertyName: "status", operator: "EQ", value: "Inactive – Refunded" }];
 }
 
-/** Cancellations all-time — access_revoked = true */
+/** Cancellations all-time — Inactive – Cancelled status */
 export function cancellationsAllTimeFilters(): HubSpotFilter[] {
-  return [{ propertyName: "access_revoked", operator: "EQ", value: "true" }];
+  return [{ propertyName: "status", operator: "EQ", value: "Inactive – Cancelled" }];
 }
 
 // ─── Period filters ───────────────────────────────────────────────────────────
@@ -211,12 +199,12 @@ export function refundedFilters(start: string, end: string): HubSpotFilter[] {
   ];
 }
 
-/** Cancellations in period — access_revoked = true + revocation_date in period */
+/** Cancellations in period — Inactive – Cancelled status + membership_inactive_date in period */
 export function cancellationsFilters(start: string, end: string): HubSpotFilter[] {
   return [
-    { propertyName: "access_revoked", operator: "EQ", value: "true" },
-    { propertyName: "revocation_date", operator: "GTE", value: toEpochMs(start) },
-    { propertyName: "revocation_date", operator: "LTE", value: toEpochMs(end, true) },
+    { propertyName: "status", operator: "EQ", value: "Inactive – Cancelled" },
+    { propertyName: "membership_inactive_date", operator: "GTE", value: toEpochMs(start) },
+    { propertyName: "membership_inactive_date", operator: "LTE", value: toEpochMs(end, true) },
   ];
 }
 

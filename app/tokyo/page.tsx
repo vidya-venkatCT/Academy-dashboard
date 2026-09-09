@@ -23,7 +23,6 @@ import {
   refundedFilters,
   cancellationsFilters,
   withType,
-  withExcludeCT,
   HubSpotFilter,
   CONTACT_PROPERTIES,
 } from "@/lib/tokyo-filters";
@@ -151,6 +150,29 @@ function storePeriod(start: string, end: string, type: string, data: StoredRowCo
   }
 }
 
+// ── Snapshot count cache ──────────────────────────────────────────────────────
+type SnapCache = { counts: Partial<Record<ViewKey, number | null>>; ts: number };
+function loadSnapCache(pt: string): SnapCache | null {
+  try {
+    const raw = localStorage.getItem(`tokyo_snap_${pt}`);
+    return raw ? (JSON.parse(raw) as SnapCache) : null;
+  } catch { return null; }
+}
+function saveSnapCache(pt: string, counts: Partial<Record<ViewKey, number | null>>): void {
+  try {
+    localStorage.setItem(`tokyo_snap_${pt}`, JSON.stringify({ counts, ts: Date.now() }));
+  } catch {}
+}
+function formatRefreshTime(ts: number): string {
+  const diff = Math.floor((Date.now() - ts) / 1000);
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  const d = new Date(ts);
+  const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  if (d.toDateString() === new Date().toDateString()) return `today at ${time}`;
+  return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })} at ${time}`;
+}
+
 interface HubSpotResult {
   total: number;
   results: Contact[];
@@ -159,6 +181,18 @@ interface HubSpotResult {
 
 function cacheKey(filters: HubSpotFilter[], after?: string): string {
   return JSON.stringify({ filters, after });
+}
+
+// Serial request queue — one HubSpot request at a time to avoid 429s
+let _reqChain: Promise<void> = Promise.resolve();
+function enqueue<T>(task: () => Promise<T>): Promise<T> {
+  const result = _reqChain.then(task);
+  // Chain on a version that swallows errors so the queue keeps moving
+  _reqChain = result.then(
+    () => new Promise((r) => setTimeout(r, 250)),
+    () => new Promise((r) => setTimeout(r, 250)),
+  );
+  return result;
 }
 
 async function searchContacts(filters: HubSpotFilter[] | HubSpotFilter[][], after?: string, attempt = 0): Promise<HubSpotResult> {
@@ -170,20 +204,22 @@ async function searchContacts(filters: HubSpotFilter[] | HubSpotFilter[][], afte
     ? (filters as HubSpotFilter[][]).map((f) => ({ filters: f }))
     : [{ filters: filters as HubSpotFilter[] }];
 
-  const res = await fetch("/api/hubspot-search-tokyo", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      filterGroups,
-      properties: CONTACT_PROPERTIES,
-      limit: 100,
-      after,
-    }),
-  });
+  const res = await enqueue(() =>
+    fetch("/api/hubspot-search-tokyo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filterGroups,
+        properties: CONTACT_PROPERTIES,
+        limit: 100,
+        after,
+      }),
+    })
+  );
 
   if (!res.ok) {
-    if (attempt < 2) {
-      await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
+    if (attempt < 3) {
+      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
       return searchContacts(filters, after, attempt + 1);
     }
     throw new Error(`API error ${res.status}`);
@@ -193,7 +229,33 @@ async function searchContacts(filters: HubSpotFilter[] | HubSpotFilter[][], afte
   return data;
 }
 
+function isCTEmail(email: string | null | undefined, name?: string | null): boolean {
+  if (email) {
+    const e = email.toLowerCase();
+    if (e.includes("@contrarianthink.com") || e.includes("@bizscout.com") || e.includes("test")) return true;
+  }
+  // Also catch test accounts with no email set (e.g. "Learners Test", "Kevin ACAD SO Test")
+  if (name && /\btest\b/i.test(name)) return true;
+  return false;
+}
 
+/** Paginate all pages of a query and return the count excluding CT team members. */
+async function ctExcludedCount(filters: HubSpotFilter[][]): Promise<number | null> {
+  try {
+    const first = await searchContacts(filters);
+    let all: Contact[] = [...first.results];
+    let after = first.paging?.next?.after;
+    while (after) {
+      const page = await searchContacts(filters, after);
+      all = [...all, ...page.results];
+      after = page.paging?.next?.after;
+    }
+    const ct = all.filter((c) => isCTEmail(c.properties.bdrm_login_email, c.properties.member_name)).length;
+    return Math.max(0, first.total - ct);
+  } catch {
+    return null;
+  }
+}
 
 function fmtDate(v: string | null | undefined): string {
   if (!v) return "—";
@@ -285,7 +347,7 @@ function StatCard({ title, subtitle, badge, badgeColor, count, displayValue, isL
   );
 }
 
-function viewFilters(view: ViewKey, start: string, end: string, productType: string | null, excl = false): HubSpotFilter[][] {
+function viewFilters(view: ViewKey, start: string, end: string, productType: string | null): HubSpotFilter[][] {
   const today = new Date().toISOString().slice(0, 10);
   const isPast = end < today;
   let filters: HubSpotFilter[] | HubSpotFilter[][];
@@ -309,8 +371,7 @@ function viewFilters(view: ViewKey, start: string, end: string, productType: str
     case "refunded":          filters = refundedFilters(start, end); break;
     case "cancellations":     filters = cancellationsFilters(start, end); break;
   }
-  const groups = productType ? withType(filters, productType) : (Array.isArray(filters[0]) ? filters as HubSpotFilter[][] : [filters as HubSpotFilter[]]);
-  return excl ? withExcludeCT(groups) : groups;
+  return productType ? withType(filters, productType) : (Array.isArray(filters[0]) ? filters as HubSpotFilter[][] : [filters as HubSpotFilter[]]);
 }
 
 function fmtPrice(v: string | null | undefined): string {
@@ -518,6 +579,7 @@ export default function DashboardPage() {
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [excludeCT, setExcludeCT] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState<number | null>(null);
 
   // ── Eligible Renewals breakdown tab state ─────────────────────────────────
   const [eligBreakdownContacts, setEligBreakdownContacts] = useState<Contact[]>([]);
@@ -541,61 +603,119 @@ export default function DashboardPage() {
 
   const loadSnapshotViews = useCallback(async (pt: string, excl: boolean) => {
     const isAcademy = pt === "Academy";
-    const ct = (g: HubSpotFilter[][]) => excl ? withExcludeCT(g) : g;
     setLoading((l) => ({ ...l, lifetime: true, current: true, primary: true, spouse: true, partner: true, acquired: isAcademy, churnedAll: true, renewalAll: true, refundedAll: true, cancellationsAll: true }));
-    const acqPromise = isAcademy ? searchContacts(ct(withType(acquiredBusinessFilters(), pt))) : Promise.resolve(null as HubSpotResult | null);
+
+    const baseLife   = withType(lifetimeFilters(), pt);
+    const baseAll    = withType(currentAllFilters(), pt);
+    const basePrim   = withType(primaryBaseFilters(), pt);
+    const baseSpo    = withType(spouseFilters(), pt);
+    const basePart   = withType(partnerFilters(), pt);
+    const baseAcq    = isAcademy ? withType(acquiredBusinessFilters(), pt) : null;
+    const baseChAll  = withType(churnedAllTimeFilters(), pt);
+    const baseRenAll = withType(renewalAllTimeFilters(), pt);
+    const baseRefAll = withType(refundedAllTimeFilters(), pt);
+    const baseCanAll = withType(cancellationsAllTimeFilters(), pt);
+
     const [life, all, prim, spo, part, acq, chAll, renAll, refAll, canAll] = await Promise.allSettled([
-      searchContacts(ct(withType(lifetimeFilters(), pt))),
-      searchContacts(ct(withType(currentAllFilters(), pt))),
-      searchContacts(ct(withType(primaryBaseFilters(), pt))),
-      searchContacts(ct(withType(spouseFilters(), pt))),
-      searchContacts(ct(withType(partnerFilters(), pt))),
-      acqPromise,
-      searchContacts(ct(withType(churnedAllTimeFilters(), pt))),
-      searchContacts(ct(withType(renewalAllTimeFilters(), pt))),
-      searchContacts(ct(withType(refundedAllTimeFilters(), pt))),
-      searchContacts(ct(withType(cancellationsAllTimeFilters(), pt))),
+      searchContacts(baseLife),
+      searchContacts(baseAll),
+      searchContacts(basePrim),
+      searchContacts(baseSpo),
+      searchContacts(basePart),
+      baseAcq ? searchContacts(baseAcq) : Promise.resolve(null as HubSpotResult | null),
+      searchContacts(baseChAll),
+      searchContacts(baseRenAll),
+      searchContacts(baseRefAll),
+      searchContacts(baseCanAll),
     ]);
-    setState((s) => {
-      const snap = (r: PromiseSettledResult<HubSpotResult | null>) =>
-        r.status === "fulfilled" ? r.value : null;
-      return {
-        ...s,
-        counts: { ...s.counts,
-          lifetime: snap(life)?.total ?? null, current: snap(all)?.total ?? null,
-          primary: snap(prim)?.total ?? null, spouse: snap(spo)?.total ?? null, partner: snap(part)?.total ?? null,
-          acquired: isAcademy ? (snap(acq)?.total ?? null) : null,
-          churnedAll: snap(chAll)?.total ?? null, renewalAll: snap(renAll)?.total ?? null,
-          refundedAll: snap(refAll)?.total ?? null, cancellationsAll: snap(canAll)?.total ?? null,
-        },
-        rows: { ...s.rows,
-          lifetime: snap(life)?.results ?? [], current: snap(all)?.results ?? [],
-          primary: snap(prim)?.results ?? [], spouse: snap(spo)?.results ?? [], partner: snap(part)?.results ?? [],
-          acquired: snap(acq)?.results ?? [],
-          churnedAll: snap(chAll)?.results ?? [], renewalAll: snap(renAll)?.results ?? [],
-          refundedAll: snap(refAll)?.results ?? [], cancellationsAll: snap(canAll)?.results ?? [],
-        },
-        totals: { ...s.totals,
-          lifetime: snap(life)?.total ?? null, current: snap(all)?.total ?? null,
-          primary: snap(prim)?.total ?? null, spouse: snap(spo)?.total ?? null, partner: snap(part)?.total ?? null,
-          acquired: isAcademy ? (snap(acq)?.total ?? null) : null,
-          churnedAll: snap(chAll)?.total ?? null, renewalAll: snap(renAll)?.total ?? null,
-          refundedAll: snap(refAll)?.total ?? null, cancellationsAll: snap(canAll)?.total ?? null,
-        },
-        offsets: { ...s.offsets,
-          lifetime: snap(life)?.paging?.next?.after, current: snap(all)?.paging?.next?.after,
-          primary: snap(prim)?.paging?.next?.after, spouse: snap(spo)?.paging?.next?.after, partner: snap(part)?.paging?.next?.after,
-          acquired: snap(acq)?.paging?.next?.after,
-          churnedAll: snap(chAll)?.paging?.next?.after, renewalAll: snap(renAll)?.paging?.next?.after,
-          refundedAll: snap(refAll)?.paging?.next?.after, cancellationsAll: snap(canAll)?.paging?.next?.after,
-        },
-      };
-    });
+
+    const snap = (r: PromiseSettledResult<HubSpotResult | null>) =>
+      r.status === "fulfilled" ? r.value : null;
+
+    // When CT exclusion is on, paginate all pages per view and count client-side.
+    // This avoids relying on CONTAINS_TOKEN/NOT_CONTAINS_TOKEN which may not be
+    // supported on custom object text properties in HubSpot.
+    let adjLife: number | null = snap(life)?.total ?? null;
+    let adjAll: number | null = snap(all)?.total ?? null;
+    let adjPrim: number | null = snap(prim)?.total ?? null;
+    let adjSpo: number | null = snap(spo)?.total ?? null;
+    let adjPart: number | null = snap(part)?.total ?? null;
+    let adjAcq: number | null = isAcademy ? (snap(acq)?.total ?? null) : null;
+    let adjChAll: number | null = snap(chAll)?.total ?? null;
+    let adjRenAll: number | null = snap(renAll)?.total ?? null;
+    let adjRefAll: number | null = snap(refAll)?.total ?? null;
+    let adjCanAll: number | null = snap(canAll)?.total ?? null;
+
+    if (excl) {
+      const [a0, a1, a2, a3, a4, a5, a6, a7, a8, a9] = await Promise.all([
+        ctExcludedCount(baseLife),
+        ctExcludedCount(baseAll),
+        ctExcludedCount(basePrim),
+        ctExcludedCount(baseSpo),
+        ctExcludedCount(basePart),
+        baseAcq ? ctExcludedCount(baseAcq) : Promise.resolve(null),
+        ctExcludedCount(baseChAll),
+        ctExcludedCount(baseRenAll),
+        ctExcludedCount(baseRefAll),
+        ctExcludedCount(baseCanAll),
+      ]);
+      adjLife = a0; adjAll = a1; adjPrim = a2; adjSpo = a3; adjPart = a4;
+      adjAcq = isAcademy ? a5 : null;
+      adjChAll = a6; adjRenAll = a7; adjRefAll = a8; adjCanAll = a9;
+    }
+
+    const freshSnap = {
+      lifetime: adjLife, current: adjAll,
+      primary: adjPrim, spouse: adjSpo, partner: adjPart,
+      acquired: adjAcq,
+      churnedAll: adjChAll, renewalAll: adjRenAll,
+      refundedAll: adjRefAll, cancellationsAll: adjCanAll,
+    };
+    if (!excl && Object.values(freshSnap).some((v) => v !== null)) {
+      saveSnapCache(pt, freshSnap);
+      setLastRefresh(Date.now());
+    }
+
+    setState((s) => ({
+      ...s,
+      counts: { ...s.counts,
+        lifetime:         adjLife   ?? s.counts.lifetime,
+        current:          adjAll    ?? s.counts.current,
+        primary:          adjPrim   ?? s.counts.primary,
+        spouse:           adjSpo    ?? s.counts.spouse,
+        partner:          adjPart   ?? s.counts.partner,
+        acquired:         adjAcq    ?? s.counts.acquired,
+        churnedAll:       adjChAll  ?? s.counts.churnedAll,
+        renewalAll:       adjRenAll ?? s.counts.renewalAll,
+        refundedAll:      adjRefAll ?? s.counts.refundedAll,
+        cancellationsAll: adjCanAll ?? s.counts.cancellationsAll,
+      },
+      rows: { ...s.rows,
+        lifetime: snap(life)?.results ?? [], current: snap(all)?.results ?? [],
+        primary: snap(prim)?.results ?? [], spouse: snap(spo)?.results ?? [], partner: snap(part)?.results ?? [],
+        acquired: snap(acq)?.results ?? [],
+        churnedAll: snap(chAll)?.results ?? [], renewalAll: snap(renAll)?.results ?? [],
+        refundedAll: snap(refAll)?.results ?? [], cancellationsAll: snap(canAll)?.results ?? [],
+      },
+      totals: { ...s.totals,
+        lifetime: snap(life)?.total ?? null, current: snap(all)?.total ?? null,
+        primary: snap(prim)?.total ?? null, spouse: snap(spo)?.total ?? null, partner: snap(part)?.total ?? null,
+        acquired: isAcademy ? (snap(acq)?.total ?? null) : null,
+        churnedAll: snap(chAll)?.total ?? null, renewalAll: snap(renAll)?.total ?? null,
+        refundedAll: snap(refAll)?.total ?? null, cancellationsAll: snap(canAll)?.total ?? null,
+      },
+      offsets: { ...s.offsets,
+        lifetime: snap(life)?.paging?.next?.after, current: snap(all)?.paging?.next?.after,
+        primary: snap(prim)?.paging?.next?.after, spouse: snap(spo)?.paging?.next?.after, partner: snap(part)?.paging?.next?.after,
+        acquired: snap(acq)?.paging?.next?.after,
+        churnedAll: snap(chAll)?.paging?.next?.after, renewalAll: snap(renAll)?.paging?.next?.after,
+        refundedAll: snap(refAll)?.paging?.next?.after, cancellationsAll: snap(canAll)?.paging?.next?.after,
+      },
+    }));
     setLoading((l) => ({ ...l, lifetime: false, current: false, primary: false, spouse: false, partner: false, acquired: false, churnedAll: false, renewalAll: false, refundedAll: false, cancellationsAll: false }));
   }, []);
 
   const loadPeriodViews = useCallback(async (start: string, end: string, pt: string, excl: boolean) => {
-    const ct = (g: HubSpotFilter[][]) => excl ? withExcludeCT(g) : g;
     setLoading((l) => ({ ...l, new: true, churned: true, renewal: true, eligible: true, refunded: true, cancellations: true }));
     setState((s) => ({
       ...s,
@@ -608,30 +728,70 @@ export default function DashboardPage() {
 
     const today = new Date().toISOString().slice(0, 10);
     const isPast = end < today;
-    const eligFilters = ct(withType(isPast ? eligibleRenewalFilters(start, end) : eligibleRenewalActiveFilters(start, end), pt));
+
+    const baseNew     = withType(newJoinersFilters(start, end), pt);
+    const baseChurn   = withType(churnedFilters(start, end), pt);
+    const baseRenew   = withType(renewalActualFilters(start, end), pt);
+    const baseElig    = withType(isPast ? eligibleRenewalFilters(start, end) : eligibleRenewalActiveFilters(start, end), pt);
+    const baseRefund  = withType(refundedFilters(start, end), pt);
+    const baseCancels = withType(cancellationsFilters(start, end), pt);
+    const baseNewPrim = withType(newJoinersPrimaryFilters(start, end), pt);
+    const baseNewSpo  = withType(newJoinersSpouseFilters(start, end), pt);
+    const baseNewPart = withType(newJoinersPartnerFilters(start, end), pt);
+
     const [newJ, churn, renew, elig, refund, cancels, newPrim, newSpo, newPart] = await Promise.allSettled([
-      searchContacts(ct(withType(newJoinersFilters(start, end), pt))),
-      searchContacts(ct(withType(churnedFilters(start, end), pt))),
-      searchContacts(ct(withType(renewalActualFilters(start, end), pt))),
-      searchContacts(eligFilters),
-      searchContacts(ct(withType(refundedFilters(start, end), pt))),
-      searchContacts(ct(withType(cancellationsFilters(start, end), pt))),
-      searchContacts(ct(withType(newJoinersPrimaryFilters(start, end), pt))),
-      searchContacts(ct(withType(newJoinersSpouseFilters(start, end), pt))),
-      searchContacts(ct(withType(newJoinersPartnerFilters(start, end), pt))),
+      searchContacts(baseNew),
+      searchContacts(baseChurn),
+      searchContacts(baseRenew),
+      searchContacts(baseElig),
+      searchContacts(baseRefund),
+      searchContacts(baseCancels),
+      searchContacts(baseNewPrim),
+      searchContacts(baseNewSpo),
+      searchContacts(baseNewPart),
     ]);
 
-    setState((s) => {
-      const v = (r: PromiseSettledResult<HubSpotResult>) => r.status === "fulfilled" ? r.value : null;
-      return {
-        ...s,
-        counts:  { ...s.counts,  new: v(newJ)?.total ?? null, churned: v(churn)?.total ?? null, renewal: v(renew)?.total ?? null, eligible: v(elig)?.total ?? null, refunded: v(refund)?.total ?? null, cancellations: v(cancels)?.total ?? null },
+    const v = (r: PromiseSettledResult<HubSpotResult>) => r.status === "fulfilled" ? r.value : null;
+
+    // Adjusted counts: default to raw HubSpot totals
+    let adjNew: number | null = v(newJ)?.total ?? null;
+    let adjChurn: number | null = v(churn)?.total ?? null;
+    let adjRenew: number | null = v(renew)?.total ?? null;
+    let adjElig: number | null = v(elig)?.total ?? null;
+    let adjRefund: number | null = v(refund)?.total ?? null;
+    let adjCancels: number | null = v(cancels)?.total ?? null;
+    let adjNewPrim: number | null = v(newPrim)?.total ?? null;
+    let adjNewSpo: number | null = v(newSpo)?.total ?? null;
+    let adjNewPart: number | null = v(newPart)?.total ?? null;
+
+    if (excl) {
+      const [b0, b1, b2, b3, b4, b5, b6, b7, b8] = await Promise.all([
+        ctExcludedCount(baseNew),
+        ctExcludedCount(baseChurn),
+        ctExcludedCount(baseRenew),
+        ctExcludedCount(baseElig),
+        ctExcludedCount(baseRefund),
+        ctExcludedCount(baseCancels),
+        ctExcludedCount(baseNewPrim),
+        ctExcludedCount(baseNewSpo),
+        ctExcludedCount(baseNewPart),
+      ]);
+      adjNew = b0; adjChurn = b1; adjRenew = b2; adjElig = b3;
+      adjRefund = b4; adjCancels = b5;
+      adjNewPrim = b6; adjNewSpo = b7; adjNewPart = b8;
+    }
+
+    setState((s) => ({
+      ...s,
+      counts:  { ...s.counts,
+        new: adjNew, churned: adjChurn, renewal: adjRenew, eligible: adjElig,
+        refunded: adjRefund, cancellations: adjCancels,
+      },
         rows:    { ...s.rows,    new: v(newJ)?.results ?? [], churned: v(churn)?.results ?? [], renewal: v(renew)?.results ?? [], eligible: v(elig)?.results ?? [], refunded: v(refund)?.results ?? [], cancellations: v(cancels)?.results ?? [] },
         totals:  { ...s.totals,  new: v(newJ)?.total ?? null, churned: v(churn)?.total ?? null, renewal: v(renew)?.total ?? null, eligible: v(elig)?.total ?? null, refunded: v(refund)?.total ?? null, cancellations: v(cancels)?.total ?? null },
         offsets: { ...s.offsets, new: v(newJ)?.paging?.next?.after, churned: v(churn)?.paging?.next?.after, renewal: v(renew)?.paging?.next?.after, eligible: v(elig)?.paging?.next?.after, refunded: v(refund)?.paging?.next?.after, cancellations: v(cancels)?.paging?.next?.after },
-        newBreakdown: { primary: v(newPrim)?.total ?? null, spouse: v(newSpo)?.total ?? null, partner: v(newPart)?.total ?? null },
-      };
-    });
+        newBreakdown: { primary: adjNewPrim, spouse: adjNewSpo, partner: adjNewPart },
+    }));
     setLoading((l) => ({ ...l, new: false, churned: false, renewal: false, eligible: false, refunded: false, cancellations: false }));
   }, []);
 
@@ -730,6 +890,30 @@ export default function DashboardPage() {
     setEligActualLoading(false);
   }, []);
 
+  // Pre-populate counts from cache whenever product type changes so numbers
+  // are visible immediately (even while loading or when rate-limited).
+  useEffect(() => {
+    const cached = loadSnapCache(productType);
+    if (!cached) { setLastRefresh(null); return; }
+    setState((s) => ({
+      ...s,
+      counts: {
+        ...s.counts,
+        lifetime:         cached.counts.lifetime         ?? s.counts.lifetime,
+        current:          cached.counts.current          ?? s.counts.current,
+        primary:          cached.counts.primary          ?? s.counts.primary,
+        spouse:           cached.counts.spouse           ?? s.counts.spouse,
+        partner:          cached.counts.partner          ?? s.counts.partner,
+        acquired:         cached.counts.acquired         ?? s.counts.acquired,
+        churnedAll:       cached.counts.churnedAll       ?? s.counts.churnedAll,
+        renewalAll:       cached.counts.renewalAll       ?? s.counts.renewalAll,
+        refundedAll:      cached.counts.refundedAll      ?? s.counts.refundedAll,
+        cancellationsAll: cached.counts.cancellationsAll ?? s.counts.cancellationsAll,
+      },
+    }));
+    setLastRefresh(cached.ts);
+  }, [productType]);
+
   useEffect(() => { loadSnapshotViews(productType, excludeCT); }, [loadSnapshotViews, productType, excludeCT]);
   useEffect(() => { loadPeriodViews(range.start, range.end, productType, excludeCT); }, // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.period, state.customStart, state.customEnd, state.specificMonth, productType, excludeCT]);
@@ -750,7 +934,7 @@ export default function DashboardPage() {
     const after = state.offsets[view];
     if (!after || state.loadingMore) return;
     setState((s) => ({ ...s, loadingMore: true }));
-    const data = await searchContacts(viewFilters(view, range.start, range.end, productType, excludeCT), after).catch(() => null);
+    const data = await searchContacts(viewFilters(view, range.start, range.end, productType), after).catch(() => null);
     if (data) {
       setState((s) => ({
         ...s,
@@ -866,16 +1050,10 @@ export default function DashboardPage() {
   const activeTotal = state.totals[state.activeView];
   const cols = tableColumns(state.activeView);
 
-  function isCTEmail(email: string | null | undefined): boolean {
-    if (!email) return false;
-    const e = email.toLowerCase();
-    return e.includes("@contrarianthink.com") || e.includes("@bizscout.com") || e.includes("test");
-  }
-
   // Sort the visible rows client-side.
   // Date columns use sortKey (epoch ms) for numeric sort; price also sorts numerically.
   const sortedRows = (() => {
-    const rows = excludeCT ? activeRows.filter((c) => !isCTEmail(c.properties.bdrm_login_email)) : activeRows;
+    const rows = excludeCT ? activeRows.filter((c) => !isCTEmail(c.properties.bdrm_login_email, c.properties.member_name)) : activeRows;
     if (!sortCol) return rows;
     const col = cols.find((c) => c.label === sortCol);
     if (!col) return rows;
@@ -920,6 +1098,11 @@ export default function DashboardPage() {
             {state.counts.spouse !== null ? ` · ${state.counts.spouse.toLocaleString()} spouse` : ""}
             {state.counts.partner !== null ? ` · ${state.counts.partner.toLocaleString()} partner` : ""}
           </p>
+          {lastRefresh !== null && (
+            <p style={S({ margin: "2px 0 0", fontSize: "11px", color: "#aaa" })}>
+              Last refreshed: {formatRefreshTime(lastRefresh)}
+            </p>
+          )}
         </div>
         <div style={S({ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "8px" })}>
           {/* Product type selector */}
@@ -983,7 +1166,7 @@ export default function DashboardPage() {
               <StatCard title="Churned" subtitle="All inactive statuses ever" badge="All Time" badgeColor="red" count={state.counts.churnedAll} isLoading={loading.churnedAll} active={state.activeView === "churnedAll"} onClick={() => setView("churnedAll")} />
               <StatCard title="Actual Renewals" subtitle="Has an actual renewal date" badge="All Time" badgeColor="yellow" count={state.counts.renewalAll} isLoading={loading.renewalAll} active={state.activeView === "renewalAll"} onClick={() => setView("renewalAll")} />
               <StatCard title="Refunds" subtitle="Inactive – Refunded ever" badge="All Time" badgeColor="rose" count={state.counts.refundedAll} isLoading={loading.refundedAll} active={state.activeView === "refundedAll"} onClick={() => setView("refundedAll")} />
-              <StatCard title="Cancellations" subtitle="Access revoked ever" badge="All Time" badgeColor="gray" count={state.counts.cancellationsAll} isLoading={loading.cancellationsAll} active={state.activeView === "cancellationsAll"} onClick={() => setView("cancellationsAll")} />
+              <StatCard title="Cancellations" subtitle="Inactive – Cancelled ever" badge="All Time" badgeColor="gray" count={state.counts.cancellationsAll} isLoading={loading.cancellationsAll} active={state.activeView === "cancellationsAll"} onClick={() => setView("cancellationsAll")} />
             </div>
 
             {/* ── Period ──────────────────────────────────────────────────────── */}
@@ -1157,16 +1340,16 @@ export default function DashboardPage() {
                 </thead>
                 <tbody>
                   {[
-                    ["Lifetime Members",       "All membership records ever created — counts every status (Active, Grace, Expired, Inactive – Delinquent, Inactive – Refunded)"],
+                    ["Lifetime Members",       "All membership records ever created — no status filter, counts every record of this product type"],
                     ["Current Active — Total", "Members with status = Active OR Grace"],
                     ["Current Active — Primary",  "Active or Grace AND membership_type = Primary"],
                     ["Current Active — Spouse",   "Active or Grace AND membership_type = Secondary - Spouse"],
                     ["Current Active — Business Partner", "Active or Grace AND membership_type = Secondary - Business Partner"],
                     ["Business Acquisitions",  "Active or Grace AND owners_circle = true (Academy product type only)"],
-                    ["Churned (All Time)",      "All members ever with status = Expired, Inactive – Delinquent, or Inactive – Refunded — no date filter"],
+                    ["Churned (All Time)",      "All members with status = Expired, Inactive – Delinquent, or Inactive – Refunded — no date filter"],
                     ["Actual Renewals (All Time)", "All members where actual_renewal_date has any value"],
                     ["Refunds (All Time)",      "All members where status = Inactive – Refunded — no date filter"],
-                    ["Cancellations (All Time)","All members where access_revoked = true — no date filter"],
+                    ["Cancellations (All Time)","All members where status = Inactive – Cancelled — no date filter"],
                   ].map(([col, def], i) => (
                     <tr key={col} style={S({ borderBottom: "1px solid #f0f0ee", background: i % 2 === 0 ? "#fff" : "#fafaf9" })}>
                       <td style={S({ padding: "10px 16px", fontWeight: 600, whiteSpace: "nowrap", color: "#1a1a1a", verticalAlign: "top" })}>{col}</td>
@@ -1245,8 +1428,8 @@ export default function DashboardPage() {
               {
                 title: "Cancellations",
                 rows: [
-                  ["access_revoked",  "true"],
-                  ["revocation_date", "≥ period start AND ≤ period end"],
+                  ["status",                  "Inactive – Cancelled"],
+                  ["membership_inactive_date", "≥ period start AND ≤ period end"],
                 ],
               },
             ] as { title: string; rows: string[][]; note?: string }[]).map(({ title, rows, note }) => (
@@ -1354,9 +1537,9 @@ export default function DashboardPage() {
                     ["start_date_v2",             "Date the membership started — used for New Joiners"],
                     ["actual_renewal_date",        "Date of the most recent actual renewal — used for Actual Renewals"],
                     ["expected_renewal_date",      "Date the membership is expected to renew — used for Expected Renewals"],
-                    ["membership_inactive_date",   "Date the membership became inactive — used for Churned and Refunds"],
-                    ["access_revoked",             "true if the member's access has been revoked — used for Cancellations"],
-                    ["revocation_date",            "Date access was revoked — used to scope Cancellations to a period"],
+                    ["membership_inactive_date",   "Date the membership became inactive — used for Churned, Cancellations (period), and Refunds"],
+                    ["access_revoked",             "true if the member's access has been revoked — displayed in list view"],
+                    ["revocation_date",            "Date access was revoked — displayed in list view"],
                     ["owners_circle",              "true — member has acquired a business (Business Acquisitions metric; Academy only)"],
                     ["renewal_price",              "The member's renewal price — shown in Renewals and Refunds list views"],
                   ].map(([tag, meaning], i, arr) => (

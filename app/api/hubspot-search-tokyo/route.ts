@@ -8,6 +8,7 @@ const ALLOWED_OPERATORS = new Set([
   "EQ", "NEQ", "LT", "LTE", "GT", "GTE",
   "CONTAINS_TOKEN", "NOT_CONTAINS_TOKEN",
   "HAS_PROPERTY", "NOT_HAS_PROPERTY",
+  "IN", "NOT_IN",
 ]);
 
 const ALLOWED_PROPERTIES = new Set(CONTACT_PROPERTIES);
@@ -53,23 +54,17 @@ export async function POST(req: NextRequest) {
   };
   if (typeof after === "string" && after) payload.after = after;
 
-  let upstream: Response | null = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    upstream = await fetch(HUBSPOT_BASE, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-    if (upstream.status !== 429) break;
-    const retryAfter = Number(upstream.headers.get("Retry-After") ?? 1);
-    await new Promise((r) => setTimeout(r, (retryAfter || 1) * 1000 * (attempt + 1)));
-  }
+  const upstream = await fetch(HUBSPOT_BASE, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
 
-  const data = await upstream!.json();
-  const res = NextResponse.json(data, { status: upstream!.status });
+  const data = await upstream.json();
+  const res = NextResponse.json(data, { status: upstream.status });
   res.headers.set("Cache-Control", "s-maxage=5, stale-while-revalidate=5");
   return res;
 }
