@@ -19,7 +19,6 @@ import {
   churnedFilters,
   renewalActualFilters,
   eligibleRenewalFilters,
-  eligibleRenewalActiveFilters,
   refundedFilters,
   cancellationsFilters,
   withType,
@@ -367,7 +366,7 @@ function viewFilters(view: ViewKey, start: string, end: string, productType: str
     case "new":               filters = newJoinersFilters(start, end); break;
     case "churned":           filters = churnedFilters(start, end); break;
     case "renewal":           filters = renewalActualFilters(start, end); break;
-    case "eligible":          filters = isPast ? eligibleRenewalFilters(start, end) : eligibleRenewalActiveFilters(start, end); break;
+    case "eligible":          filters = eligibleRenewalFilters(start, end); break;
     case "refunded":          filters = refundedFilters(start, end); break;
     case "cancellations":     filters = cancellationsFilters(start, end); break;
   }
@@ -732,7 +731,7 @@ export default function DashboardPage() {
     const baseNew     = withType(newJoinersFilters(start, end), pt);
     const baseChurn   = withType(churnedFilters(start, end), pt);
     const baseRenew   = withType(renewalActualFilters(start, end), pt);
-    const baseElig    = withType(isPast ? eligibleRenewalFilters(start, end) : eligibleRenewalActiveFilters(start, end), pt);
+    const baseElig    = withType(eligibleRenewalFilters(start, end), pt);
     const baseRefund  = withType(refundedFilters(start, end), pt);
     const baseCancels = withType(cancellationsFilters(start, end), pt);
     const baseNewPrim = withType(newJoinersPrimaryFilters(start, end), pt);
@@ -814,7 +813,7 @@ export default function DashboardPage() {
         }
       }
 
-      const eligFilters = withType(isPast ? eligibleRenewalFilters(p.start, p.end) : eligibleRenewalActiveFilters(p.start, p.end), pt);
+      const eligFilters = withType(eligibleRenewalFilters(p.start, p.end), pt);
       try {
         const [newPrim, newSpo, newPart, churn, refund, actual, eligible] = await Promise.all([
           searchContacts(withType(newJoinersPrimaryFilters(p.start, p.end), pt)),
@@ -850,7 +849,7 @@ export default function DashboardPage() {
 
     const today = new Date().toISOString().slice(0, 10);
     const isPast = end < today;
-    const filters = withType(isPast ? eligibleRenewalFilters(start, end) : eligibleRenewalActiveFilters(start, end), pt);
+    const filters = withType(eligibleRenewalFilters(start, end), pt);
 
     let all: Contact[] = [];
     let after: string | undefined;
@@ -1485,7 +1484,7 @@ export default function DashboardPage() {
                 </table>
               </div>
               <p style={S({ margin: "6px 0 0", fontSize: "12px", color: "#b45309", background: "#fef9c3", padding: "6px 10px", borderRadius: "6px" })}>
-                For past periods, all primary members with an expected_renewal_date in range are counted regardless of current status — so lapsed members who were eligible are still included. For current and future periods only Active or Grace members are counted.
+                All primary and business partner members with an expected_renewal_date in range are counted regardless of current status — lapsed members who were eligible are still included.
               </p>
             </div>
 
